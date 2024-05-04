@@ -9,9 +9,6 @@ data/
 __pycache__/
 *.pyc
 
-# Ignore the 'data' directory completely
-/data/
-
 # Ignore specific notebook files
 /notebooks/data/
 notebooks/vae_mnist_classifier.ipynb
