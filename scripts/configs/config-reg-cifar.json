@@ -1,0 +1,21 @@
+{
+    "run_name": "cifartest1",
+    "model": {
+        "name": "logreg",
+        "input_size": 3072,
+        "num_classes": 10
+    },
+    "training": {
+        "learning_rate": 0.0001,
+        "num_epochs": 2,
+        "regularization": "None",
+        "lambda": 0.01,
+        "stop_100": "False",
+        "batch_size": 64,
+        "save_model": "True"
+    },
+    "dataset": {
+        "name": "CIFAR10",
+        "num_train": "None"
+    }
+}

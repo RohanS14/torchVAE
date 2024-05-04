@@ -1,0 +1,18 @@
+# Ignore certain directories
+logs/
+checkpoints/
+env/
+misc/
+data/
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.pyc
+
+# Ignore the 'data' directory completely
+/data/
+
+# Ignore specific notebook files
+/notebooks/data/
+notebooks/vae_mnist_classifier.ipynb
+notebooks/vae_mnist_classifier_rain.ipynb

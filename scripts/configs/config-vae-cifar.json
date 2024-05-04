@@ -1,0 +1,18 @@
+{
+    "run_name": "vae_cifar10_test",
+    "model": {
+        "name": "VAE",
+        "latent_dims": 20,
+        "architecture": "conv",
+        "beta": 1.0
+    },
+    "training": {
+        "batch_size": 128,
+        "learning_rate": 0.001,
+        "num_epochs": 2,
+        "save_model": "True"
+    },
+    "dataset": {
+        "name": "CIFAR10"
+    }
+}
