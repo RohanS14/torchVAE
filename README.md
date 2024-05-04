@@ -5,3 +5,5 @@ Example: `python3 scripts/train_vae.py --config scripts/configs/config-vae.json`
 
 You should run the scripts from the root directory (`semisupervisedVAE`). You may have to run this command first:
 `export PYTHONPATH="/semisupervisedVAE:$PYTHONPATH"`
+
+You can install requirements using `pip install -r requirements.txt --no-cache-dir` directly or in a virtual environment.
