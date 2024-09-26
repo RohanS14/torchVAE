@@ -36,8 +36,8 @@ Example: `python3 scripts/train_vae.py --config scripts/configs/config-vae-mnist
 
 Make your own config file to edit training. Training is logged to Tensorboard. You can launch Tensorboard in your browser using one of the following commands:
 
-`tensorboard --logdir=logs
-python3 -m tensorboard.main --logdir=logs`
+`tensorboard --logdir=logs`
+`python3 -m tensorboard.main --logdir=logs`
 
 You can specify to save a model then load the saved model later.
 
