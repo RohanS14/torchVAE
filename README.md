@@ -9,7 +9,9 @@ Next, create a virtual environment (most probably in the same directory as your 
 
 Then, activate the environment using `source env/bin/activate`.
 
-Install the requirements using You can install requirements using `pip install -r requirements.txt --no-cache-dir`.
+Install the requirements using You can install requirements using 
+
+`pip install -r requirements.txt --no-cache-dir`.
 
 Now you can try training some models.
 
