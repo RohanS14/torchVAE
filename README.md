@@ -7,11 +7,19 @@ Next, create a virtual environment (most probably in the same directory as your 
 
 `python -m venv /path_to_your_cloned_repo/env`
 
+`python3.10 -m venv /path_to_your_cloned_repo/env`
+
 Then, activate the environment using `source env/bin/activate`.
 
 Install the requirements using You can install requirements using 
 
 `pip install -r requirements.txt --no-cache-dir`.
+
+You will probably run into to issues installing PyTorch. Visit the Pytorch website to find the distribution matching your system. For the teapot server it should be:
+
+`pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118`
+
+Install any other packages that failed using `pip`.
 
 Now you can try training some models.
 
