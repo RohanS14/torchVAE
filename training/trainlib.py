@@ -43,7 +43,9 @@ def trainVAE(vae, data, beta, epochs, lr, run_name, device='cuda'):
             
             kl_loss = kl_divergence(mu_z, logvar_z)
             
-            recon_loss = ((x - x_hat)**2).sum()
+            #recon_loss = ((x - x_hat)**2).sum()
+            recon_loss = 0 
+            
             loss = recon_loss + beta * kl_loss
             loss.backward()
             
