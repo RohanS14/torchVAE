@@ -16,7 +16,7 @@ Then, activate the environment using `source env/bin/activate`.
 
 Install the requirements using You can install requirements using 
 
-`pip install -r requirements.txt --no-cache-dir`.
+`pip install -r requirements.txt --no-cache-dir`
 
 You will probably run into to issues installing PyTorch. Visit the Pytorch website to find the distribution matching your system. For the teapot server it should be:
 
