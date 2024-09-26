@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torchvision
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import tqdm
@@ -231,3 +232,80 @@ def trainPCVAE(pcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, lr=
         progress.set_description(f'Total Loss: {total_loss}, Recon: {recon_loss}, KL: {kl_loss}, Classifier: {class_loss}')
     
     return pcvae
+
+def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, lr=0.001, beta=1, \
+               lambda_=1, l_weight=1, u_weight=1, run_name="default", device='cuda'):
+    
+    print("weights", l_weight, u_weight, lambda_)
+    criterion_recon = nn.MSELoss(reduction='sum')
+    criterion_class = nn.CrossEntropyLoss()
+    criterion_consistency = nn.CrossEntropyLoss()
+    
+    # set up tensorboard writer
+    print(f"Logging to {run_name}")
+    writer = SummaryWriter(log_dir=f'./logs/{run_name}')
+    
+    optimizer = torch.optim.Adam(cpcvae.parameters(), lr=lr)
+    progress = tqdm.trange(epochs)
+    
+    for epoch in progress:
+        print(epoch)
+        
+        cpcvae.train()
+
+        # Create iterators, cycling the smaller one
+        if len(unlabeled_data_loader) < len(labeled_data_loader):
+            u_iter = itertools.cycle(unlabeled_data_loader)
+            l_iter = iter(labeled_data_loader)
+        else:
+            l_iter = itertools.cycle(labeled_data_loader)
+            u_iter = iter(unlabeled_data_loader)
+        
+        num_batches = max(len(unlabeled_data_loader), len(labeled_data_loader))
+        
+        # iterate through batches
+        for _ in range(num_batches):
+            x_u, _ = next(u_iter)
+            x_l, y_l = next(l_iter)
+
+            x_u = x_u.to(device)
+            x_l, y_l = x_l.to(device), y_l.to(device)
+
+            optimizer.zero_grad()
+            
+            # process unlabeled data
+            mu_u, logvar_u, x_hat_u, _, _ = cpcvae(x_u)
+            
+            recon_loss_u = criterion_recon(x_hat_u, x_u)
+            kl_loss_u = kl_divergence(mu_u, logvar_u)
+            
+            loss_u = recon_loss_u + beta * kl_loss_u
+
+            # process labeled data
+            mu_l, logvar_l, x_hat_l, logits_z, logits_zhat = cpcvae(x_l)
+            
+            recon_loss_l = criterion_recon(x_hat_l, x_l)
+            kl_loss_l = kl_divergence(mu_l, logvar_l)
+            class_loss = criterion_class(logits_z, y_l)
+            consistency_loss = criterion_consistency(logits_zhat, F.softmax(logits_z, dim=-1))
+            
+            loss_l = recon_loss_l + beta * kl_loss_l + lambda_ * class_loss + 2 * lambda_ * consistency_loss
+            
+            # combine all losses
+            total_loss = u_weight * loss_u + l_weight * loss_l
+            total_loss.backward()
+            optimizer.step()
+            
+        # Log the losses
+        with torch.no_grad():
+            recon_loss = u_weight * recon_loss_u + l_weight * recon_loss_l
+            kl_loss = u_weight * kl_loss_u +l_weight * kl_loss_l
+            writer.add_scalar('Reconstruction Loss', recon_loss, epoch)
+            writer.add_scalar('KL Loss', kl_loss, epoch)
+            writer.add_scalar('Classifier Loss', class_loss, epoch)
+            writer.add_scalar('Consistency Loss', consistency_loss, epoch)
+            writer.add_scalar('Total Loss', total_loss, epoch)
+        
+        progress.set_description(f'Total Loss: {total_loss}, Recon: {recon_loss}, KL: {kl_loss}, Classifier: {class_loss}, Consistency: {consistency_loss}')
+    
+    return cpcvae
