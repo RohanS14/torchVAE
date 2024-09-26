@@ -1,5 +1,8 @@
+## Variational Autoencoders for Semi-Supervised Learning
 Train and analyze different types of models for semi-supervised learning. Contains implementations for logistic regression, linear VAE, convolutional VAE, M1 model and Prediction-constrained VAE. 
 Currently supports MNIST and CIFAR-10 datasets.
+
+## Setup
 
 If you want to run this code, clone the repository into your own directory on the teapot server.
 
@@ -15,9 +18,9 @@ Install the requirements using You can install requirements using
 
 You will probably run into to issues installing PyTorch. Visit the Pytorch website to find the distribution matching your system. For the teapot server it should be:
 
-`pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118`
+`pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 --no-cache-dir`
 
-Install any other packages that failed using `pip`.
+Install any other packages that failed using `pip`. Do not forget the `--no-cache-dir` flag, as it prevents a copy of the packages from being backed up in your home directory. If you do forget and get I/O errors due to no memory, run `rm -rf ~/.cache/pip`.
 
 Now you can try training some models.
 
