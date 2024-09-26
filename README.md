@@ -24,6 +24,7 @@ Install any other packages that failed using `pip`.
 Now you can try training some models.
 
 You should run the scripts from the root directory of the repository. You may have to run this command first:
+
 `export PYTHONPATH="/path_to_your_cloned_repo:$PYTHONPATH"`
 
 Example: `python3 scripts/train_vae.py --config scripts/configs/config-vae-mnist.json`
