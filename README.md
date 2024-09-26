@@ -5,9 +5,7 @@ If you want to run this code, clone the repository into your own directory on th
 
 Next, create a virtual environment (most probably in the same directory as your cloned repository). You can also use conda or Docker.
 
-`python -m venv /path_to_your_cloned_repo/env`
-
-`python3.10 -m venv /path_to_your_cloned_repo/env`
+`python3.11 -m venv /path_to_your_cloned_repo/env`
 
 Then, activate the environment using `source env/bin/activate`.
 
