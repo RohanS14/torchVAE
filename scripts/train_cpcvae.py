@@ -104,10 +104,10 @@ def main(config=None):
             "run_name": "test_cpcvae",
             "model": {
                 "name": "CPCVAE",
-                "latent_dims": 20,
+                "latent_dims": 50,
                 "architecture": "linear",
                 "beta": 1,
-                "lambda": 1,
+                "lambda": 50,
                 "label_weight": 1,
                 "unlabel_weight": 1,
                 "num_classes": 10

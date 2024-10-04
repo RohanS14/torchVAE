@@ -9,8 +9,9 @@ class LinearEncoder(nn.Module):
         super(LinearEncoder, self).__init__()
         
         self.linear1 = nn.Linear(784, 512)
-        self.linear2 = nn.Linear(512, latent_dims) # outputs mu
-        self.linear3 = nn.Linear(512, latent_dims) # outputs logvar
+        self.linear2 = nn.Linear(512, 512)
+        self.linear3_mu = nn.Linear(512, latent_dims) # outputs mu
+        self.linear3_logvar = nn.Linear(512, latent_dims) # outputs logvar
         
         self.N = torch.distributions.Normal(0, 1)
         self.N.loc = self.N.loc.cuda() # hack to get sampling on the GPU
@@ -21,8 +22,9 @@ class LinearEncoder(nn.Module):
     def forward(self, x):
         x = torch.flatten(x, start_dim=1)
         x = F.relu(self.linear1(x))
-        mu =  self.linear2(x)
-        logvar = self.linear3(x)
+        x = F.relu(self.linear2(x))
+        mu =  self.linear3_mu(x)
+        logvar = self.linear3_logvar(x)
         
         # change this NOT
         # self.kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
@@ -39,28 +41,62 @@ class LinearEncoder(nn.Module):
 class LinearDecoder(nn.Module):
     def __init__(self, latent_dims):
         super(LinearDecoder, self).__init__()
+        is_normal = False
         self.linear1 = nn.Linear(latent_dims, 512)
-        self.linear2_mu = nn.Linear(512, 784)
-        self.fixed_scale = nn.Parameter(torch.tensor(0.)) # logvar
-        
+        self.linear2 = nn.Linear(512, 512)
+        self.linear3_mu = nn.Linear(512, 784)
+        if is_normal:
+            self.fixed_scale = nn.Parameter(torch.tensor(0.)) # logvar
+    # TODO: add another layer to this with the same size
+    # TODO: update latent dims to 50
+    # TODO: Look at classification confusion matrix and detect class collapse
+    # TODO: For the decoder the distribution used was the continuous bernoulli distribution
+    # TODO: Reason for continuous bernoulli distribution is that if the reconstruction is super good then 
+    # its gonna be alright but we want to do some data augmenetation where we learn from the manifold.
+    # The distribtuion does better theoretically because the normal distribution is not a good fit for
+    # our observatino because pixel values are not necessarily normally distributed (fixed range, discrete).
+    # the pixel values are quite bimodal because they are either 0 or 1 most of the time.
+    # The more cynical reason tho is that it can give more noise than a normal distribution so its better 
+    # to sample from it
+
     def forward(self, z):
+        is_normal = False
         h = F.relu(self.linear1(z))
-        mu = torch.sigmoid(self.linear2_mu(h))
-        # expand to match the shape of mu
-        # sigma = torch.exp(self.fixed_scale.expand_as(mu) / 2)
-        # return mu, sigma
+        h = F.relu(self.linear2(h))
         
-        logvar = self.fixed_scale.expand_as(mu)
-        return mu, logvar
+        if is_normal:
+            # expand to match the shape of mu
+            mu = torch.sigmoid(self.linear3_mu(h))
+            sigma = torch.exp(self.fixed_scale.expand_as(mu) / 2)
+            return mu, sigma
+        else:
+            logits = torch.sigmoid(self.linear3_mu(h))
+            return logits
+
+        # logvar = self.fixed_scale.expand_as(mu)
+        # TODO: it might be that these logvars are becoming quite small
+        # return logits#, logvar
 
     def sample(self, mu, logvar):
         # Using torch.distributions to create a normal distribution and sample from it
         # no need to expand due to broadcasting
-        sigma = torch.exp(logvar / 2)
-        normal_dist = torch.distributions.Normal(mu, sigma)
-        xhat = normal_dist.rsample()
+        
+        # normal_dist = torch.distributions.Normal(mu, sigma)
+        is_normal = False
+        if is_normal:
+            sigma = torch.exp(logvar / 2)
+            normal_dist = torch.distributions.Normal(mu, sigma)
+            xhat = normal_dist.rsample()
+            return xhat.reshape((-1, 1, 28, 28))
+        else:
+            bern = torch.distributions.ContinuousBernoulli(logits=mu)
+            xhat = bern.rsample()
+            return xhat.reshape((-1, 1, 28, 28))
+
+        # print(f"{logits.shape=}")
+        # assert xhat.shape == logits.shape
         # for now, specific to MNIST
-        return xhat.reshape((-1, 1, 28, 28))
+        # return xhat.reshape((-1, 1, 28, 28))
 
 class ConvEncoder(nn.Module):
     def __init__(self, latent_dims):
@@ -149,8 +185,14 @@ class VariationalAutoencoder(nn.Module):
             self.decoder = ConvDecoder(latent_dims) 
     
     def forward(self, x):
+        is_normal = False
         mu_z, logvar_z = self.encoder(x)
         z = self.encoder.sample(mu_z, logvar_z)
-        mu_x, logvar_x = self.decoder(z)
-        xhat = self.decoder.sample(mu_x, logvar_x)
-        return mu_z, logvar_z, xhat
+        if is_normal:
+            mu_x, logvar_x = self.decoder(z)
+            xhat = self.decoder.sample(mu_x, logvar_x)
+            return mu_z, logvar_z, xhat
+        else:
+            logits = self.decoder(z)
+            xhat = self.decoder.sample(logits)
+            return mu_z, logvar_z, xhat
