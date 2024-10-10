@@ -237,7 +237,9 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
                lambda_=1, l_weight=1, u_weight=1, run_name="default", device='cuda'):
     
     print("weights", l_weight, u_weight, lambda_)
+
     criterion_recon = nn.MSELoss(reduction='sum')
+    # TODO: -log prob of continuous bernoulli
     criterion_class = nn.CrossEntropyLoss()
     criterion_consistency = nn.CrossEntropyLoss()
     
