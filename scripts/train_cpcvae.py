@@ -106,8 +106,8 @@ def main(config=None):
                 "name": "CPCVAE",
                 "latent_dims": 50,
                 "architecture": "linear",
-                "beta": 1,
-                "lambda": 50,
+                "beta": 0.01,
+                "lambda": 1,
                 "label_weight": 1,
                 "unlabel_weight": 1,
                 "num_classes": 10

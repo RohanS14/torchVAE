@@ -5,6 +5,7 @@ import torch
 import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributions as dist
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import tqdm
@@ -238,7 +239,7 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
     
     print("weights", l_weight, u_weight, lambda_)
 
-    criterion_recon = nn.MSELoss(reduction='sum')
+    # criterion_recon = nn.MSELoss(reduction='sum')
     # TODO: -log prob of continuous bernoulli
     criterion_class = nn.CrossEntropyLoss()
     criterion_consistency = nn.CrossEntropyLoss()
@@ -278,7 +279,12 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
             # process unlabeled data
             mu_u, logvar_u, x_hat_u, _, _ = cpcvae(x_u)
             
-            recon_loss_u = criterion_recon(x_hat_u, x_u)
+            # recon_loss_u = criterion_recon(x_hat_u, x_u)
+            # recon_loss_u = continuous_bernoulli_log_likelihood(x_u, x_hat_u)
+
+            continuous_bernoulli_dist_u = dist.ContinuousBernoulli(probs=x_hat_u)
+            recon_loss_u = -continuous_bernoulli_dist_u.log_prob(x_u).sum()
+
             kl_loss_u = kl_divergence(mu_u, logvar_u)
             
             loss_u = recon_loss_u + beta * kl_loss_u
@@ -286,7 +292,10 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
             # process labeled data
             mu_l, logvar_l, x_hat_l, logits_z, logits_zhat = cpcvae(x_l)
             
-            recon_loss_l = criterion_recon(x_hat_l, x_l)
+            # recon_loss_l = criterion_recon(x_hat_l, x_l)
+            continuous_bernoulli_dist_l = dist.ContinuousBernoulli(probs=x_hat_l)
+            recon_loss_l = -continuous_bernoulli_dist_l.log_prob(x_l).sum()
+            
             kl_loss_l = kl_divergence(mu_l, logvar_l)
             class_loss = criterion_class(logits_z, y_l)
             consistency_loss = criterion_consistency(logits_zhat, F.softmax(logits_z, dim=-1))

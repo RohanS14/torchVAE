@@ -72,6 +72,7 @@ class LinearDecoder(nn.Module):
         else:
             logits = torch.sigmoid(self.linear3_mu(h))
             return logits
+            # return self.linear3_mu(h)
 
         # logvar = self.fixed_scale.expand_as(mu)
         # TODO: it might be that these logvars are becoming quite small
@@ -89,7 +90,7 @@ class LinearDecoder(nn.Module):
             xhat = normal_dist.rsample()
             return xhat.reshape((-1, 1, 28, 28))
         else:
-            bern = torch.distributions.ContinuousBernoulli(logits=mu)
+            bern = torch.distributions.ContinuousBernoulli(probs=mu)
             xhat = bern.rsample()
             return xhat.reshape((-1, 1, 28, 28))
 

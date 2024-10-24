@@ -76,8 +76,10 @@ def stackedHist(z_batches, y_batches):
     num_dims = z_batches.shape[1]
 
     # Create histograms
+    # make it size agnostic
+    # fig, axes = plt.subplots(num_dims, num_classes, figsize=(12, 20))
 
-    fig, axes = plt.subplots(5, 4, figsize=(12, 20))
+    fig, axes = plt.subplots(10, 5, figsize=(12, 20))
     axes = axes.flatten()
 
     for dim in range(num_dims):
