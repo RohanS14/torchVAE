@@ -6,7 +6,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, ConcatDataset, random_split
 
 import argparse
-import json
+import yaml
 import os
 from datetime import datetime
 
@@ -72,8 +72,8 @@ def returnPCVAE(config):
 
     # custom run name with params and timestamp
     RUN_NAME = config["run_name"]
-    date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    RUN_NAME += f'-PCvae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
+    # date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    # RUN_NAME += f'-PCvae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
 
     # Get unlabelled data
     data_l, data_u = loadData(DATASET_NAME, NUM_TRAIN)
@@ -85,7 +85,7 @@ def returnPCVAE(config):
 
     # Train PCVAE
     pcvae = trainPCVAE(pcvae, dataLoader_u, dataLoader_l, epochs=NUM_EPOCHS, lr=LEARNING_RATE, beta=BETA, \
-                lambda_=LAMBDA_VAL, l_weight=L_WEIGHT, u_weight=U_WEIGHT, run_name=RUN_NAME, device=device)
+                lambda_=LAMBDA_VAL, l_weight=L_WEIGHT, u_weight=U_WEIGHT, run_name=RUN_NAME, device=device, config=config)
 
     # Save the model
     if bool(config['training']['save_model']):
@@ -98,7 +98,7 @@ def returnPCVAE(config):
     return pcvae
 
 def main(config=None):
-    # Example config.json
+    # Example config
     if config is None:
         config = {
             "run_name": "test_pcvae",
@@ -133,6 +133,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
-        config = json.load(f)
+        config = yaml.safe_load(f)
 
     main(config)

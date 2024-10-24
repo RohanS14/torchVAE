@@ -1,7 +1,7 @@
 import torch
 import torchvision
 import argparse
-import json
+import yaml
 import os
 from datetime import datetime
 
@@ -22,8 +22,8 @@ def returnVAE(config):
     
     # custom run name with params and timestamp
     RUN_NAME = config["run_name"]
-    date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    RUN_NAME += f'-vae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
+    # date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    # RUN_NAME += f'-vae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
     
     # download and preprocess data
     if DATASET_NAME == "MNIST":            
@@ -50,7 +50,7 @@ def returnVAE(config):
     vae = VariationalAutoencoder(ARCHITECTURE, LATENT_DIMS).to(device) # GPU
     
     # train model
-    recon_losses, kl_losses, vae = trainVAE(vae, data, BETA, NUM_EPOCHS, LEARNING_RATE, RUN_NAME, device)
+    recon_losses, kl_losses, vae = trainVAE(vae, data, BETA, NUM_EPOCHS, LEARNING_RATE, RUN_NAME, device, config=config)
     
     # save model
     if SAVE_MODEL:
@@ -93,6 +93,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
-        config = json.load(f)
+        config = yaml.safe_load(f)
 
     main(config)

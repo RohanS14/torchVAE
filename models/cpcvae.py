@@ -12,9 +12,15 @@ class ConsistencyConstrainedVAE(VariationalAutoencoder):
         # encode, sample, decode
         mu_z, sigma_z = self.encoder(x)
         z = self.encoder.sample(mu_z, sigma_z)
-        mu_x, sigma_x = self.decoder(z)
-        xhat = self.decoder.sample(mu_x, sigma_x)
         
+        if self.decoder.distn == "bern":
+            # TODO: make this size agnostic, logits or probs
+            probs_xhat = self.decoder(z).reshape((-1, 1, 28, 28))
+            xhat = self.decoder.sample(probs_xhat)
+        else:
+            mu_x, sigma_x = self.decoder(z)
+            xhat = self.decoder.sample(mu_x, sigma_x)
+            
         # make classifications based on latent variable z
         logits_z = self.classifier(z)
         
@@ -25,4 +31,4 @@ class ConsistencyConstrainedVAE(VariationalAutoencoder):
         # make secondary classifications from zhat
         logits_zhat = self.classifier(zhat)
         
-        return mu_z, sigma_z, xhat, logits_z, logits_zhat
+        return mu_z, sigma_z, probs_xhat, xhat, logits_z, logits_zhat

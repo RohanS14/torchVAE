@@ -1,0 +1,18 @@
+run_name: "test_cpcvae_mnist_agg"
+model:
+  name: "CPCVAE"
+  latent_dims: 50
+  architecture: "fc"
+  beta: 1
+  lambda: 25
+  label_weight: 1
+  unlabel_weight: 1
+  num_classes: 10
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  num_epochs: 50
+  save_model: true
+dataset:
+  name: "MNIST"
+  num_train: 100

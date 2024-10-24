@@ -4,6 +4,7 @@ checkpoints/
 env/
 misc/
 data/
+wandb/
 
 # Ignore Python cache and compiled files
 __pycache__/

@@ -52,15 +52,83 @@ class LinearDecoder(nn.Module):
         
         logvar = self.fixed_scale.expand_as(mu)
         return mu, logvar
-
+        
     def sample(self, mu, logvar):
         # Using torch.distributions to create a normal distribution and sample from it
         # no need to expand due to broadcasting
         sigma = torch.exp(logvar / 2)
         normal_dist = torch.distributions.Normal(mu, sigma)
         xhat = normal_dist.rsample()
-        # for now, specific to MNIST
+        # TODO: specific to MNIST
         return xhat.reshape((-1, 1, 28, 28))
+
+class FCEncoder(nn.Module):
+    def __init__(self, latent_dims=50):
+        super(FCEncoder, self).__init__()
+        
+        self.linear1 = nn.Linear(784, 512)
+        self.linear2 = nn.Linear(512, 512)
+        self.linear3 = nn.Linear(512, latent_dims) # outputs mu
+        self.linear4 = nn.Linear(512, latent_dims) # outputs logvar
+        
+        self.N = torch.distributions.Normal(0, 1)
+        self.N.loc = self.N.loc.cuda()
+        self.N.scale = self.N.scale.cuda()
+    
+    def forward(self, x):
+        x = torch.flatten(x, start_dim=1)
+        x = F.relu(self.linear1(x))
+        x = F.relu(self.linear2(x))
+        mu =  self.linear3(x)
+        logvar = self.linear4(x)
+        
+        return mu, logvar
+
+    def sample(self, mu, logvar):
+        sigma = torch.exp(logvar / 2)
+        z = mu + sigma*self.N.sample(mu.shape)
+        return z
+    
+class FCDecoder(nn.Module):
+    def __init__(self, latent_dims=50, distn="bern"):
+        super(FCDecoder, self).__init__()
+        
+        self.distn = distn
+        
+        self.linear1 = nn.Linear(latent_dims, 512)
+        self.linear2 = nn.Linear(512, 512)
+        self.linear3_mu = nn.Linear(512, 784)
+        
+        if distn != "bern":
+            self.fixed_scale = nn.Parameter(torch.tensor(0.)) # logvar
+        
+    def forward(self, z):
+        h = F.relu(self.linear1(z))
+        h = F.relu(self.linear2(h))
+        mu = torch.sigmoid(self.linear3_mu(h))
+        
+        if self.distn == "bern":
+            return mu
+        else:
+            logvar = self.fixed_scale.expand_as(mu)
+            return mu, logvar
+
+    def sample(self, mu, logvar=None):
+        
+        if self.distn == "bern":
+            assert mu.all() <= 1 and mu.all() >= 0
+            # TODO: logits or probs?
+            bern = torch.distributions.ContinuousBernoulli(probs=mu)
+            xhat = bern.rsample()
+            return xhat.reshape((-1, 1, 28, 28))
+        else:
+            # Using torch.distributions to create a normal distribution and sample from it
+            # no need to expand due to broadcasting
+            sigma = torch.exp(logvar / 2)
+            normal_dist = torch.distributions.Normal(mu, sigma)
+            xhat = normal_dist.rsample()
+            # for now, specific to MNIST
+            return xhat.reshape((-1, 1, 28, 28))
 
 class ConvEncoder(nn.Module):
     def __init__(self, latent_dims):
@@ -144,6 +212,9 @@ class VariationalAutoencoder(nn.Module):
         if architecture == "linear":
             self.encoder = LinearEncoder(latent_dims)
             self.decoder = LinearDecoder(latent_dims)
+        if architecture == "fc":
+            self.encoder = FCEncoder(latent_dims)
+            self.decoder = FCDecoder(latent_dims)
         if architecture == "conv":
             self.encoder = ConvEncoder(latent_dims)
             self.decoder = ConvDecoder(latent_dims) 

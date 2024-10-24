@@ -6,7 +6,9 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, ConcatDataset, random_split
 
 import argparse
-import json
+
+import yaml
+
 import os
 from datetime import datetime
 
@@ -48,7 +50,7 @@ def loadData(DATASET_NAME, NUM_TRAIN):
     return data_l, data_u
 
 def returnCPCVAE(config):
-
+    
     # get config values (not the best but in case config structure changes)
     MODEL_NAME = config["model"]["name"]
     LATENT_DIMS = config["model"]["latent_dims"]
@@ -72,20 +74,24 @@ def returnCPCVAE(config):
 
     # custom run name with params and timestamp
     RUN_NAME = config["run_name"]
-    date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    RUN_NAME += f'-CPCvae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
+    # date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    # RUN_NAME += f'-CPCVAE-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
 
     # Get unlabelled data
     data_l, data_u = loadData(DATASET_NAME, NUM_TRAIN)
     dataLoader_l = DataLoader(data_l, batch_size=BATCH_SIZE, shuffle=True)
     dataLoader_u = DataLoader(data_u, batch_size=BATCH_SIZE, shuffle=False)
+    
+    # check the distribution of labels in the train set
+    for i in range(NUM_CLASSES):
+        print(f"Number of samples with label {i}: {len([x for x in dataLoader_l.dataset if x[1] == i])}")
 
     # Create an instance of CPCVAE
     cpcvae = ConsistencyConstrainedVAE(ARCHITECTURE, LATENT_DIMS, NUM_CLASSES).to(device) # GPU
 
     # Train CPCVAE
     cpcvae = trainCPCVAE(cpcvae, dataLoader_u, dataLoader_l, epochs=NUM_EPOCHS, lr=LEARNING_RATE, beta=BETA, \
-                lambda_=LAMBDA_VAL, l_weight=L_WEIGHT, u_weight=U_WEIGHT, run_name=RUN_NAME, device=device)
+                lambda_=LAMBDA_VAL, l_weight=L_WEIGHT, u_weight=U_WEIGHT, run_name=RUN_NAME, device=device, config=config)
 
     # Save the model
     if bool(config['training']['save_model']):
@@ -98,14 +104,14 @@ def returnCPCVAE(config):
     return cpcvae
 
 def main(config=None):
-    # Example config.json
+    # Example config
     if config is None:
         config = {
             "run_name": "test_cpcvae",
             "model": {
                 "name": "CPCVAE",
-                "latent_dims": 20,
-                "architecture": "linear",
+                "latent_dims": 50,
+                "architecture": "fc",
                 "beta": 1,
                 "lambda": 1,
                 "label_weight": 1,
@@ -134,7 +140,7 @@ if __name__ == '__main__':
 
     if args.config is not None:
         with open(args.config, 'r') as f:
-            config = json.load(f)
+            config = yaml.safe_load(f)
     else:
         config = None
 

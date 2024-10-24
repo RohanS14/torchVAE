@@ -9,7 +9,7 @@ from models.logreg import LogisticRegression
 from training.trainlib import train_logreg
 
 import argparse
-import json
+import yaml
 import os
 from datetime import datetime
 
@@ -63,8 +63,8 @@ def returnLogReg(config, data=None):
     
     # custom run name with params and timestamp
     RUN_NAME = config["run_name"]
-    date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    RUN_NAME += f'-logreg-{DATASET_NAME}-{INPUT_SIZE}-{NUM_CLASSES}-{NUM_EPOCHS}-{LEARNING_RATE}-{date}'
+    # date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    # RUN_NAME += f'-logreg-{DATASET_NAME}-{INPUT_SIZE}-{NUM_CLASSES}-{NUM_EPOCHS}-{LEARNING_RATE}-{date}'
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -132,6 +132,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
-        config = json.load(f)
+        config = yaml.load(f)
 
     main(config)
