@@ -1,0 +1,28 @@
+run_name: "m1_test"
+VAE:
+    model:
+        name: "VAE"
+        latent_dims: 20
+        architecture: "linear"
+        beta: 1.0
+    training:
+        batch_size: 128
+        learning_rate: 0.001
+        num_epochs: 20
+        save_model: true
+logreg:
+    model:
+        name: "logreg"
+        input_size: 20
+        num_classes: 10
+    training:
+        learning_rate: 0.01
+        num_epochs: 1000
+        regularization: "None"
+        lambda: 0.01
+        stop_100: true
+        batch_size: 32
+        save_model: true
+dataset:
+    name: "MNIST"
+    num_train: 100

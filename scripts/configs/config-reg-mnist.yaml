@@ -1,0 +1,16 @@
+run_name: "logreg_FullMnist"
+model:
+    name: "logreg"
+    input_size: 784
+    num_classes: 10
+training:
+    learning_rate: 0.01
+    num_epochs: 1000
+    regularization: "None"
+    lambda: 0.01
+    stop_100: "True"
+    batch_size: 32
+    save_model: "True"
+dataset:
+    name: "MNIST"
+    num_train: 1000

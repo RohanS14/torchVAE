@@ -4,8 +4,10 @@ checkpoints/
 env/
 misc/
 data/
+wandb/
 
 # Ignore Python cache and compiled files
+.pytest_cache/
 __pycache__/
 *.pyc
 
