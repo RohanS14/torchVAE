@@ -5,7 +5,7 @@ model:
     num_classes: 10
 training:
     learning_rate: 0.0001
-    num_epochs: 2
+    num_epochs: 100
     regularization: "None"
     lambda: 0.01
     stop_100: "False"
@@ -13,4 +13,4 @@ training:
     save_model: "True"
 dataset:
     name: "CIFAR10"
-    num_train: "None"
+    num_train: 100

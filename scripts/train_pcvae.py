@@ -1,56 +1,35 @@
-import torch
-import torchvision
-import torch.nn as nn
+"""Training script for Prediction Constrained Variational Autoencoder (PCVAE)"""
 
-from torchvision import transforms
-from torch.utils.data import DataLoader, ConcatDataset, random_split
+import torch
+
+from torch.utils.data import DataLoader
 
 import argparse
 import yaml
 import os
-from datetime import datetime
 
 from models.pcvae import PredictionConstrainedVAE
 from training.trainlib import trainPCVAE
-
-def loadData(DATASET_NAME, NUM_TRAIN):
-    preprocess = transforms.Compose([
-        transforms.ToTensor()
-    ])
-    
-    if DATASET_NAME == "MNIST":
-        input_size = 28*28
-        
-        train_data = torchvision.datasets.MNIST('./data', transform=preprocess,
-                                                download=True, train=True)
-        valid_data = torchvision.datasets.MNIST('./data', transform=preprocess,
-                                                download=True, train=False)
-
-    elif DATASET_NAME == "CIFAR10":
-        input_size = 3*32*32
-        
-        train_data = torchvision.datasets.CIFAR10('./data', transform=preprocess,
-                                                    download=True, train=True)            
-        valid_data = torchvision.datasets.CIFAR10('./data', transform=preprocess,
-                                                    download=True, train=False)
-    else:
-        raise ValueError(f"Dataset {DATASET_NAME} not supported")
-    
-    if NUM_TRAIN != "None":
-        # Generate custom train/val split
-        combined_dataset = ConcatDataset([train_data, valid_data])
-        total_size = len(combined_dataset)
-        num_labels = NUM_TRAIN
-        num_unlabeled = total_size - num_labels
-        data_l, data_u = random_split(combined_dataset, [num_labels, num_unlabeled],  \
-                                                generator=torch.Generator().manual_seed(42))
-    
-    return data_l, data_u
+from utils.datatools import load_data
 
 def returnPCVAE(config):
+    """Train the PCVAE from the config file.
 
+    Config keys:
+        latent_dims: The number of latent dimensions.
+        architecture: The architecture type of the VAE.
+        beta: Coefficient of KL loss term.
+        lambda: Coefficient of prediction loss term.
+        label_weight: Coefficient of loss computed on labelled data.
+        unlabel_weight: Coefficient of loss computed on unlabelled data.
+        num_classes: The number of classes for the classifier.
+        batch_size: The batch size for training.
+        learning_rate: The learning rate for training.
+        num_epochs: The number of epochs to train.
+        save_model: Whether to save the model.
+        dataset_name: The name of the dataset (MNIST/CIFAR).
+    """
     # get config values (not the best but in case config structure changes)
-    MODEL_NAME = config["model"]["name"]
     LATENT_DIMS = config["model"]["latent_dims"]
     ARCHITECTURE = config["model"]["architecture"]
     BETA = config["model"]["beta"]
@@ -68,34 +47,47 @@ def returnPCVAE(config):
     NUM_TRAIN = config["dataset"]["num_train"]
 
     # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # custom run name with params and timestamp
     RUN_NAME = config["run_name"]
-    # date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    # RUN_NAME += f'-PCvae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
 
     # Get unlabelled data
-    data_l, data_u = loadData(DATASET_NAME, NUM_TRAIN)
+    data_l, data_u, INPUT_SIZE = load_data(DATASET_NAME, NUM_TRAIN)
     dataLoader_l = DataLoader(data_l, batch_size=BATCH_SIZE, shuffle=True)
     dataLoader_u = DataLoader(data_u, batch_size=BATCH_SIZE, shuffle=False)
 
     # Create an instance of PCVAE
-    pcvae = PredictionConstrainedVAE(ARCHITECTURE, LATENT_DIMS, NUM_CLASSES).to(device) # GPU
+    pcvae = PredictionConstrainedVAE(
+        ARCHITECTURE, LATENT_DIMS, NUM_CLASSES, INPUT_SIZE
+    ).to(device)  # GPU
 
     # Train PCVAE
-    pcvae = trainPCVAE(pcvae, dataLoader_u, dataLoader_l, epochs=NUM_EPOCHS, lr=LEARNING_RATE, beta=BETA, \
-                lambda_=LAMBDA_VAL, l_weight=L_WEIGHT, u_weight=U_WEIGHT, run_name=RUN_NAME, device=device, config=config)
+    pcvae = trainPCVAE(
+        pcvae,
+        dataLoader_u,
+        dataLoader_l,
+        epochs=NUM_EPOCHS,
+        lr=LEARNING_RATE,
+        beta=BETA,
+        lambda_=LAMBDA_VAL,
+        l_weight=L_WEIGHT,
+        u_weight=U_WEIGHT,
+        run_name=RUN_NAME,
+        device=device,
+        config=config,
+    )
 
     # Save the model
-    if bool(config['training']['save_model']):
-        checkpoint_dir = './checkpoints'
+    if bool(SAVE_MODEL):
+        checkpoint_dir = "./checkpoints"
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(checkpoint_dir, RUN_NAME)
         torch.save(pcvae.state_dict(), checkpoint_path)
         print(f"Model saved at {checkpoint_path}")
 
     return pcvae
+
 
 def main(config=None):
     # Example config
@@ -110,29 +102,29 @@ def main(config=None):
                 "lambda": 1,
                 "label_weight": 1,
                 "unlabel_weight": 1,
-                "num_classes": 10
+                "num_classes": 10,
             },
             "training": {
                 "batch_size": 64,
                 "learning_rate": 0.001,
                 "num_epochs": 20,
-                "save_model": True
+                "save_model": True,
             },
-            "dataset": {
-                "name": "MNIST",
-                "num_train": 100
-            }
+            "dataset": {"name": "MNIST", "num_train": 100},
         }
-        
+
     pcvae = returnPCVAE(config)
     return pcvae
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default=None, help='Path to the config file')
+    parser.add_argument(
+        "--config", type=str, default=None, help="Path to the config file"
+    )
     args = parser.parse_args()
 
-    with open(args.config, 'r') as f:
+    with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
     main(config)

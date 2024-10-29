@@ -13,4 +13,4 @@ training:
     save_model: "True"
 dataset:
     name: "MNIST"
-    num_train: "None"
+    num_train: 1000
