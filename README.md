@@ -3,8 +3,11 @@
 [![tests](https://github.com/RohanS14/torchVAE/actions/workflows/ci.yml/badge.svg)]([https://github.com/RohanS14/torchVAE/actions/workflows/python-tests.yml](https://github.com/RohanS14/torchVAE/actions/workflows/ci.yml))
 
 
-Train and analyze different types of models for semi-supervised learning. Contains implementations for logistic regression, linear VAE, convolutional VAE, M1 model and Prediction-constrained VAE. 
-Currently supports MNIST and CIFAR-10 datasets.
+Train and analyze different types of models for semi-supervised learning. Contains implementations for logistic regression, linear VAE, convolutional VAE, M1 model and Prediction-constrained VAE. Currently supports MNIST and CIFAR-10 datasets.
+
+Built by Harvey Mudd college students mentored by Prof. Gabriel Hope!
+Students: Rohan Subramanian, Sahil Rane, Saheli Patel
+
 
 ## Setup
 
