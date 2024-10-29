@@ -22,8 +22,10 @@ class LinearEncoder(nn.Module):
         self.linear3 = nn.Linear(512, latent_dims)  # outputs logvar
 
         self.N = torch.distributions.Normal(0, 1)
-        self.N.loc = self.N.loc.cuda()  # hack to get sampling on the GPU
-        self.N.scale = self.N.scale.cuda()
+        
+        if torch.cuda.is_available():
+            self.N.loc = self.N.loc.cuda()  # hack to get sampling on the GPU
+            self.N.scale = self.N.scale.cuda()
 
     def forward(self, x):
         x = torch.flatten(x, start_dim=1)
@@ -85,8 +87,10 @@ class FCEncoder(nn.Module):
         self.linear4 = nn.Linear(512, latent_dims)  # outputs logvar
 
         self.N = torch.distributions.Normal(0, 1)
-        self.N.loc = self.N.loc.cuda()
-        self.N.scale = self.N.scale.cuda()
+        
+        if torch.cuda.is_available():
+            self.N.loc = self.N.loc.cuda()
+            self.N.scale = self.N.scale.cuda()
 
     def forward(self, x):
         x = torch.flatten(x, start_dim=1)
@@ -182,8 +186,9 @@ class ConvEncoder(nn.Module):
         )  # outputs logvar
 
         self.N = torch.distributions.Normal(0, 1)
-        self.N.loc = self.N.loc.cuda()
-        self.N.scale = self.N.scale.cuda()
+        if torch.cuda.is_available():
+            self.N.loc = self.N.loc.cuda()
+            self.N.scale = self.N.scale.cuda()
 
     def forward(self, x):
         x = self.activation(self.conv1(x)) + self.skip_conv1(x)
