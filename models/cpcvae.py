@@ -35,7 +35,6 @@ class ConsistencyConstrainedVAE(VariationalAutoencoder):
         z = self.encoder.sample(mu_z, sigma_z)
 
         if self.architecture == "fc" and self.decoder.distn == "bern":
-            # CHANGED: made this size agnostic
             image_size = math.isqrt(self.decoder.output_dims)
             mu_x = self.decoder(z).reshape((-1, 1, image_size, image_size))
             xhat = self.decoder.sample(mu_x)

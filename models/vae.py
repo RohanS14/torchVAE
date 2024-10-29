@@ -16,13 +16,12 @@ class LinearEncoder(nn.Module):
 
         self.input_dims = input_dims
 
-        # CHANGED - size agnostic
         self.linear1 = nn.Linear(input_dims, 512)
         self.linear2 = nn.Linear(512, latent_dims)  # outputs mu
         self.linear3 = nn.Linear(512, latent_dims)  # outputs logvar
 
         self.N = torch.distributions.Normal(0, 1)
-        
+
         if torch.cuda.is_available():
             self.N.loc = self.N.loc.cuda()  # hack to get sampling on the GPU
             self.N.scale = self.N.scale.cuda()
@@ -50,7 +49,6 @@ class LinearDecoder(nn.Module):
 
         self.output_dims = output_dims
 
-        # CHANGED size agnostic
         self.linear1 = nn.Linear(latent_dims, 512)
         self.linear2_mu = nn.Linear(512, output_dims)
 
@@ -67,7 +65,6 @@ class LinearDecoder(nn.Module):
         sigma = torch.exp(logvar / 2)
         normal_dist = torch.distributions.Normal(mu, sigma)
         xhat = normal_dist.rsample()
-        # CHANGED: size agnostic
         image_size = math.isqrt(self.output_dims)
         return xhat.reshape((-1, 1, image_size, image_size))
 
@@ -80,14 +77,13 @@ class FCEncoder(nn.Module):
 
         self.input_dims = input_dims
 
-        # CHANGED: size agnostic
         self.linear1 = nn.Linear(input_dims, 512)
         self.linear2 = nn.Linear(512, 512)
         self.linear3 = nn.Linear(512, latent_dims)  # outputs mu
         self.linear4 = nn.Linear(512, latent_dims)  # outputs logvar
 
         self.N = torch.distributions.Normal(0, 1)
-        
+
         if torch.cuda.is_available():
             self.N.loc = self.N.loc.cuda()
             self.N.scale = self.N.scale.cuda()
@@ -119,7 +115,6 @@ class FCDecoder(nn.Module):
         self.output_dims = output_dims
         self.distn = distn
 
-        # CHANGED: size agnostic
         self.linear1 = nn.Linear(latent_dims, 512)
         self.linear2 = nn.Linear(512, 512)
         self.linear3_mu = nn.Linear(512, output_dims)
@@ -150,7 +145,6 @@ class FCDecoder(nn.Module):
             sigma = torch.exp(logvar / 2)
             normal_dist = torch.distributions.Normal(mu, sigma)
             xhat = normal_dist.rsample()
-        # CHANGED: size agnostic
         image_size = math.isqrt(self.output_dims)
         return xhat.reshape((-1, 1, image_size, image_size))
 
@@ -287,12 +281,11 @@ class VariationalAutoencoder(nn.Module):
         z = self.encoder.sample(mu_z, logvar_z)
 
         if self.architecture == "fc" and self.decoder.distn == "bern":
-            # CHANGED: made this size agnostic
             image_size = math.isqrt(self.decoder.output_dims)
             probs_xhat = self.decoder(z).reshape((-1, 1, image_size, image_size))
             xhat = self.decoder.sample(probs_xhat)
         else:
             mu_x, sigma_x = self.decoder(z)
             xhat = self.decoder.sample(mu_x, sigma_x)
-        
+
         return mu_z, logvar_z, xhat

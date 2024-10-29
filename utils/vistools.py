@@ -79,7 +79,6 @@ def stackedHist(z_batches, y_batches):
 
     # Create histograms
 
-    # CHANGED: make size agnostic
     ncol = 5
     nrow = math.ceil(num_dims / ncol)
 
@@ -120,7 +119,6 @@ def sample_random(vae, n=10, device='cuda'):
     axes = axes.flatten()
     
     for i in range(n):
-        # CHANGED: make size agnostic
         random_z = torch.randn(vae.latent_dims)
         
         if vae.architecture == "fc" and vae.decoder.distn == "bern":
