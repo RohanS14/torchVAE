@@ -10,7 +10,7 @@ Built by Harvey Mudd college students mentored by Prof. Gabriel Hope!
 Students: Rohan Subramanian, Sahil Rane, Saheli Patel
 
 
-## Setup
+## Setup for Lab Members
 
 If you want to run this code, clone the repository into your own directory on the teapot server.
 
