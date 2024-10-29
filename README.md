@@ -45,5 +45,8 @@ You can specify to save a model then load the saved model later.
 
 Make your own branch to code up new models or features and submit pull requests as needed.
 
+### 4. Weights and Biases
+
+We have a Weights and Biases project to log important runs: https://wandb.ai/hopelab-hmc/torchVAE/. Use `wandb disabled` to turn off logging when testing.
 
 
