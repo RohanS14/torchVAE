@@ -1,3 +1,5 @@
+"""Logistic Regression."""
+
 import torch.nn as nn
 
 
