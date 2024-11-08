@@ -11,6 +11,7 @@ from torch.utils.data import Dataset
 class SubsetWrapper(Dataset):
     def __init__(self, subset):
         self.subset = subset
+        print(type(self.subset))
 
     def __len__(self):
         return len(self.subset)
@@ -37,9 +38,12 @@ if root_path not in sys.path:
 from models.pcvae import PredictionConstrainedVAE
 from utils.vistools import plotPCAdist, stackedHist
 from masked_pcvae.train_pcvae_blackout import loadData
+
 def kl_divergence_posterior(post1_mu, post1_logvar, post2_mu, post2_logvar): # Direct calculation of KL divergence between two Gaussian posteriors # Here, post1 refers to q_ψ (masked) and post2 to q_θ (unmasked) 
     kl = 0.5 * (post2_logvar - post1_logvar + (torch.exp(post1_logvar) + (post1_mu - post2_mu)**2) / torch.exp(post2_logvar) - 1) 
     return kl.sum(dim=1).mean()
+
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # Load the trained PCVAE
 masked_vae = PredictionConstrainedVAE(architecture="linear", latent_dims=20, num_classes=10)
@@ -60,8 +64,11 @@ DATASET_NAME = "MNIST"
 NUM_TRAIN = 100
 BATCH_SIZE = 128
 data_l, data_u = loadData(DATASET_NAME, NUM_TRAIN)
-dataLoader_l = DataLoader(SubsetWrapper(data_l), batch_size=BATCH_SIZE, shuffle=True)
-dataLoader_u = DataLoader(SubsetWrapper(data_u), batch_size=BATCH_SIZE, shuffle=False)
+
+# TODO: make it 4 dataloaders one for valid_masked, .... (only vae rn)
+# TODO: try to compute KL without labels, vanilla VAE. 
+dataLoader_l = DataLoader(data_l, batch_size=BATCH_SIZE, shuffle=True)
+dataLoader_u = DataLoader(data_u, batch_size=BATCH_SIZE, shuffle=False)
 
 # Freeze parameters of the unmasked encoder
 for param in unmasked_vae.encoder.parameters():

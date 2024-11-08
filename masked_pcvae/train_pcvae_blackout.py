@@ -33,8 +33,48 @@ from masked_pcvae.trainlib_blackout import kl_divergence
 
 #     return train_data, valid_data
 
-def loadData(DATASET_NAME, NUM_TRAIN):
+# def loadData(DATASET_NAME, NUM_TRAIN):
 
+#     preprocess_unmasked = transforms.Compose([
+#         transforms.ToTensor(),
+#         transforms.RandomErasing()
+#     ])
+    
+#     # Blackout transformation for masked data
+#     preprocess_masked = transforms.Compose([
+#         transforms.ToTensor(),
+#         transforms.RandomErasing(p=1.0, scale=(0.2, 0.4), ratio=(0.3, 1.5))  # Blacking out random regions
+#     ])
+    
+#     if DATASET_NAME == "MNIST":
+#         input_size = 28 * 28
+#         train_data_unmasked = torchvision.datasets.MNIST('./data', transform=preprocess_unmasked, download=True, train=True)
+#         train_data_masked = torchvision.datasets.MNIST('./data', transform=preprocess_masked, download=True, train=True)
+#         valid_data_unmasked = torchvision.datasets.MNIST('./data', transform=preprocess_unmasked, download=True, train=False)
+#         valid_data_masked = torchvision.datasets.MNIST('./data', transform=preprocess_masked, download=True, train=False)
+    
+#     else:
+#         raise ValueError(f"Dataset {DATASET_NAME} not supported")
+    
+#     if NUM_TRAIN != "None":
+#         combined_unmasked = ConcatDataset([train_data_unmasked, valid_data_unmasked])
+#         combined_masked = ConcatDataset([train_data_masked, valid_data_masked])
+        
+#         total_size = len(combined_unmasked)
+#         num_labels = NUM_TRAIN
+#         num_unlabeled = total_size - num_labels
+        
+#         data_l_unmasked, data_u_unmasked = random_split(combined_unmasked, [num_labels, num_unlabeled], 
+#                                                         generator=torch.Generator().manual_seed(42))
+#         data_l_masked, data_u_masked = random_split(combined_masked, [num_labels, num_unlabeled], 
+#                                                     generator=torch.Generator().manual_seed(42))
+        
+#         return (data_l_masked, data_u_masked), (data_l_unmasked, data_u_unmasked)
+    
+#     return (train_data_masked, valid_data_masked), (train_data_unmasked, valid_data_unmasked)
+
+
+def loadData(DATASET_NAME, NUM_TRAIN):
     preprocess_unmasked = transforms.Compose([
         transforms.ToTensor(),
         transforms.RandomErasing()
@@ -56,23 +96,11 @@ def loadData(DATASET_NAME, NUM_TRAIN):
     else:
         raise ValueError(f"Dataset {DATASET_NAME} not supported")
     
-    if NUM_TRAIN != "None":
-        combined_unmasked = ConcatDataset([train_data_unmasked, valid_data_unmasked])
-        combined_masked = ConcatDataset([train_data_masked, valid_data_masked])
-        
-        total_size = len(combined_unmasked)
-        num_labels = NUM_TRAIN
-        num_unlabeled = total_size - num_labels
-        
-        data_l_unmasked, data_u_unmasked = random_split(combined_unmasked, [num_labels, num_unlabeled], 
-                                                        generator=torch.Generator().manual_seed(42))
-        data_l_masked, data_u_masked = random_split(combined_masked, [num_labels, num_unlabeled], 
-                                                    generator=torch.Generator().manual_seed(42))
-        
-        return (data_l_masked, data_u_masked), (data_l_unmasked, data_u_unmasked)
+    # Combine train and validation sets into full datasets
+    full_dataset_masked = ConcatDataset([train_data_masked, valid_data_masked])
+    full_dataset_unmasked = ConcatDataset([train_data_unmasked, valid_data_unmasked])
     
-    return (train_data_masked, valid_data_masked), (train_data_unmasked, valid_data_unmasked)
-
+    return full_dataset_masked, full_dataset_unmasked
 
 def returnPCVAE(config):
     DATASET_NAME = config["dataset"]["name"]
