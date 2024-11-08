@@ -43,9 +43,7 @@ def trainVAE(vae, data, beta, epochs, lr, run_name, device='cuda'):
             
             kl_loss = kl_divergence(mu_z, logvar_z)
             
-            #recon_loss = ((x - x_hat)**2).sum()
-            recon_loss = 0 
-            
+            recon_loss = ((x - x_hat)**2).sum()
             loss = recon_loss + beta * kl_loss
             loss.backward()
             
@@ -67,7 +65,7 @@ def validate(model, dataLoader, device, input_size, loss_fn):
     total = 0
     dl_losses = []
 
-    with torch.no_grad():
+    with torch.no_gradvalid_dataLoader():
         for images,labels in dataLoader:
             images = images.view(-1, input_size).to(device)
             labels = labels.to(device)

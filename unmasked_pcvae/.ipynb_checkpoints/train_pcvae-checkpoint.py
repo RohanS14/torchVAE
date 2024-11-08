@@ -5,12 +5,13 @@ import torch.nn as nn
 from torchvision import transforms
 from torch.utils.data import DataLoader, ConcatDataset, random_split
 
-from models.logreg import LogisticRegression
-
 import argparse
 import json
 import os
 from datetime import datetime
+
+from models.pcvae import PredictionConstrainedVAE
+from training.trainlib import trainPCVAE
 
 def loadData(DATASET_NAME, NUM_TRAIN):
     preprocess = transforms.Compose([
@@ -36,103 +37,99 @@ def loadData(DATASET_NAME, NUM_TRAIN):
         raise ValueError(f"Dataset {DATASET_NAME} not supported")
     
     if NUM_TRAIN != "None":
+        # Generate custom train/val split
         combined_dataset = ConcatDataset([train_data, valid_data])
         total_size = len(combined_dataset)
-        train_size = NUM_TRAIN
-        valid_size = total_size - train_size
-        train_data, valid_data = random_split(combined_dataset, [train_size, valid_size],  \
+        num_labels = NUM_TRAIN
+        num_unlabeled = total_size - num_labels
+        data_l, data_u = random_split(combined_dataset, [num_labels, num_unlabeled],  \
                                                 generator=torch.Generator().manual_seed(42))
     
-    return train_data, valid_data
-    
-def returnLogReg(config, data=None):
+    return data_l, data_u
+
+def returnPCVAE(config):
+
     # get config values (not the best but in case config structure changes)
-    RUN_NAME = config["run_name"]
     MODEL_NAME = config["model"]["name"]
-    BLACKOUT = config["model"]["blackout"]
-    if BLACKOUT:
-        from masked_pcvae.trainlib_blackout import train_logreg
-    else:
-        from unmasked_pcvae.trainlib import train_logreg
-    INPUT_SIZE = config["model"]["input_size"]
+    LATENT_DIMS = config["model"]["latent_dims"]
+    ARCHITECTURE = config["model"]["architecture"]
+    BETA = config["model"]["beta"]
+    LAMBDA_VAL = config["model"]["lambda"]
+    L_WEIGHT = config["model"]["label_weight"]
+    U_WEIGHT = config["model"]["unlabel_weight"]
     NUM_CLASSES = config["model"]["num_classes"]
+
+    BATCH_SIZE = config["training"]["batch_size"]
     LEARNING_RATE = config["training"]["learning_rate"]
     NUM_EPOCHS = config["training"]["num_epochs"]
-    REGULARIZATION = config["training"]["regularization"]
-    LAMBDA_VAL = config["training"]["lambda"]
-    STOP_100 = config["training"]["stop_100"]
-    BATCH_SIZE = config["training"]["batch_size"]
+    SAVE_MODEL = config["training"]["save_model"]
+
     DATASET_NAME = config["dataset"]["name"]
     NUM_TRAIN = config["dataset"]["num_train"]
-    
+
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     # custom run name with params and timestamp
     RUN_NAME = config["run_name"]
     date = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    RUN_NAME += f'-logreg-{DATASET_NAME}-{INPUT_SIZE}-{NUM_CLASSES}-{NUM_EPOCHS}-{LEARNING_RATE}-{date}'
-    
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Load and preprocess data
-    if data is None:    
-        train_data, valid_data = loadData(DATASET_NAME, NUM_TRAIN)
-        train_dataLoader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
-        valid_dataLoader = DataLoader(valid_data, batch_size=BATCH_SIZE, shuffle=False)
-    else:
-        train_dataLoader, valid_dataLoader = data
-        
-    # Initialize model
-    model = LogisticRegression(INPUT_SIZE, NUM_CLASSES).to(device)
-    
-    # Define optimizer and loss function
-    optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
-    loss_fn = nn.CrossEntropyLoss()
-    
-    # Train the model
-    print(f'Training on {len(train_dataLoader.dataset)} samples, valid {len(valid_dataLoader.dataset)}')
-    model = train_logreg(model, train_dataLoader, valid_dataLoader, device, optimizer, loss_fn, \
-                    LEARNING_RATE, NUM_EPOCHS, INPUT_SIZE, REGULARIZATION, LAMBDA_VAL, STOP_100, RUN_NAME)
-    
+    RUN_NAME += f'-PCvae-{DATASET_NAME}-{ARCHITECTURE}-{LATENT_DIMS}-{BETA}-{LEARNING_RATE}-{date}'
+
+    # Get unlabelled data
+    data_l, data_u = loadData(DATASET_NAME, NUM_TRAIN)
+    dataLoader_l = DataLoader(data_l, batch_size=BATCH_SIZE, shuffle=True)
+    dataLoader_u = DataLoader(data_u, batch_size=BATCH_SIZE, shuffle=False)
+
+    # Create an instance of PCVAE
+    pcvae = PredictionConstrainedVAE(ARCHITECTURE, LATENT_DIMS, NUM_CLASSES).to(device) # GPU
+
+    # Train PCVAE
+    pcvae = trainPCVAE(pcvae, dataLoader_u, dataLoader_l, epochs=NUM_EPOCHS, lr=LEARNING_RATE, beta=BETA, \
+                lambda_=LAMBDA_VAL, l_weight=L_WEIGHT, u_weight=U_WEIGHT, run_name=RUN_NAME, device=device)
+
     # Save the model
     if bool(config['training']['save_model']):
         checkpoint_dir = './checkpoints'
         os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_path = os.path.join(checkpoint_dir, RUN_NAME)
-        torch.save(model.state_dict(), checkpoint_path)
+        torch.save(pcvae.state_dict(), checkpoint_path)
         print(f"Model saved at {checkpoint_path}")
-    
-    return model
 
-def main(config):
-    # default config
+    return pcvae
+
+def main(config=None):
+    # Example config.json
     if config is None:
-        print("Using default config")
-        {
-            "run_name": "default",
+        config = {
+            "run_name": "test_pcvae",
             "model": {
-                "name": "logreg",
-                "input_size": 784,
+                "name": "PCVAE",
+                "latent_dims": 20,
+                "architecture": "linear",
+                "beta": 1,
+                "lambda": 1,
+                "label_weight": 1,
+                "unlabel_weight": 1,
                 "num_classes": 10
             },
             "training": {
+                "batch_size": 64,
                 "learning_rate": 0.001,
-                "num_epochs": 5,
-                "regularization": "None",
-                "lambda": 0.01,
-                "stop_100": "False",
-                "batch_size": 64
+                "num_epochs": 20,
+                "save_model": True
             },
             "dataset": {
-                "name": "MNIST"
+                "name": "MNIST",
+                "num_train": 100
             }
         }
         
-    model = returnLogReg(config)
-    return model
-    
+    pcvae = returnPCVAE(config)
+    return pcvae
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, help='Path to the config file')
+    parser.add_argument('--config', type=str, default=None, help='Path to the config file')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:

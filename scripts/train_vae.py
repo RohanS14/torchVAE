@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 from models.vae import VariationalAutoencoder
-from training.trainlib import trainVAE
+from masked_pcvae.trainlib_blackout import trainVAE
 
 def returnVAE(config):
     # get config values (not the best but in case config structure changes)

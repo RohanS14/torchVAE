@@ -2,6 +2,7 @@
     "run_name": "pcvae_weighted",
     "model": {
         "name": "PCVAE",
+        "blackout": true,
         "latent_dims": 20,
         "architecture": "linear",
         "beta": 1,

@@ -15,9 +15,8 @@ from training.trainlib import trainPCVAE
 
 def loadData(DATASET_NAME, NUM_TRAIN):
     preprocess = transforms.Compose([
-            transforms.ToTensor()
+        transforms.ToTensor()
     ])
-        
     
     if DATASET_NAME == "MNIST":
         input_size = 28*28
@@ -47,8 +46,6 @@ def loadData(DATASET_NAME, NUM_TRAIN):
                                                 generator=torch.Generator().manual_seed(42))
     
     return data_l, data_u
-
-
 
 def returnPCVAE(config):
 
