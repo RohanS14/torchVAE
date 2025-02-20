@@ -366,16 +366,22 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
             # aggregate label consistency
             # cross entropy loss between the distribution of predicted labels and uniform target
             probs = F.softmax(logits_z_u, dim=-1)
-            preds = torch.argmax(probs, dim=-1)
-            counts = torch.bincount(preds, minlength=cpcvae.classifier.num_classes)
-            assert counts.shape == (
-                cpcvae.classifier.num_classes,
-            ), f"Counts shape is wrong: {counts.shape}"
-            counts = counts / counts.sum()
+
+
+            # preds = torch.argmax(probs, dim=-1)
+            # counts = torch.bincount(preds, minlength=cpcvae.classifier.num_classes)
+            # assert counts.shape == (
+            #     cpcvae.classifier.num_classes,
+            # ), f"Counts shape is wrong: {counts.shape}"
+            # counts = counts / counts.sum()
+            # replace this code with mean of probs / dimension 0
+            counts = probs.mean(dim=0)
             assert torch.isclose(counts.sum(), torch.tensor(1.0)), f"Counts don't sum to 1: {counts.sum()}"
             agg_loss = criterion_aggregate(
                 counts, torch.ones_like(counts) / cpcvae.classifier.num_classes
             )
+
+            # this is not doing anything because argmax and bincount are nondifferentiable
 
             loss_l = (
                 recon_loss_l
