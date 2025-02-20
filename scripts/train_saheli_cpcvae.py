@@ -49,6 +49,11 @@ class VariationalEncoder(nn.Module):
         sigma = torch.exp(logvar/2)
         return mu, sigma
     
+    def sample(self, mu, sigma):
+        N = torch.distributions.Normal(0, 1)
+        z = mu + sigma * self.N.sample(mu.shape)
+        return z
+    
 class Decoder(nn.Module):
     def __init__(self, latent_dims):
         super(Decoder, self).__init__()
@@ -201,7 +206,9 @@ def train(VAE, unlabelled_train_data, labelled_train_data, valid_data, epochs=20
         writer.add_scalar('Agggregate_Label_consistency/train', aggregate_label_consistency, epoch)
         writer.add_scalar('Accuracy/train',accuracy/num_data, epoch)
         log_label_dist(avg_hist/sum(avg_hist), writer, epoch)
-        highest_accuracy = max(highest_accuracy, validate(VAE, valid_data, writer, epoch, highest_accuracy))
+        
+        with torch.no_grad():
+            highest_accuracy = max(highest_accuracy, validate(VAE, valid_data, writer, epoch, highest_accuracy))
     return VAE 
 
 def validate(VAE, data, writer=None, epoch=None, highest_accuracy=None):
@@ -232,7 +239,7 @@ def validate(VAE, data, writer=None, epoch=None, highest_accuracy=None):
         writer.add_scalar('Accuracy/valid',accuracy/num_data, epoch)
         log_confusion_matrix(cm, writer, epoch)
     if highest_accuracy and accuracy/num_data > highest_accuracy:
-            torch.save(VAE.state_dict(), "mnist_model100labels_aggregate_label.sav")
+            torch.save(VAE.state_dict(), "mnist_model100labels_aggregate_label_long.sav")
             highest_accuracy = accuracy/num_data
     return accuracy/num_data
 
@@ -268,8 +275,8 @@ test_data = torch.utils.data.DataLoader(
 
 latent_dims = 10
 VAE = VAEClassifer(latent_dims,classes=10).to(device) # GPU
-VAE = train(VAE, unlabelled_train_data, labelled_train_data, valid_data, epochs=20)
-
+# VAE = train(VAE, unlabelled_train_data, labelled_train_data, valid_data, epochs=20)
+VAE = train(VAE, unlabelled_train_data, labelled_train_data, valid_data,epochs=20000)
 
 # loss_weights={"consistency": 40, "classifer": 100, "aggregate": 3200}
 # ,sav_file="mnist_model_100labels10.sav"

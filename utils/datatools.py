@@ -22,6 +22,7 @@ class EncodedDataset(Dataset):
 
         # Encode all images beforehand and store them
         for image, label in tqdm(dataset):
+            image = image.unsqueeze(0) # TODO: needed for saheli's conv
             encoded_image = self.encode_fn(image, device)
             self.encoded_images.append(encoded_image)
             self.labels.append(label)

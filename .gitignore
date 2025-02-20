@@ -5,6 +5,8 @@ env/
 misc/
 data/
 wandb/
+runs/
+*data/
 
 # Ignore Python cache and compiled files
 .pytest_cache/
@@ -13,5 +15,6 @@ __pycache__/
 
 # Ignore specific notebook files
 /notebooks/data/
+/notebooks/mnist_data/
 notebooks/vae_mnist_classifier.ipynb
 notebooks/vae_mnist_classifier_rain.ipynb
