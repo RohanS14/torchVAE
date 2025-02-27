@@ -5,11 +5,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
-#import #wandb
+import wandb
 #TODO: future : inpaint, colorization, low rez-> high rez
 import argparse
 import json 
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default=None, help='Path to the config file')
@@ -24,6 +23,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 root_path = '/cs/cs152/individual/ishita/checkpoints/'
 if root_path not in sys.path:
     sys.path.insert(1, root_path)
+
 from models.pcvae import PredictionConstrainedVAE
 from utils.vistools import plotPCAdist, stackedHist
 from masked_pcvae.train_pcvae_blackout import loadData

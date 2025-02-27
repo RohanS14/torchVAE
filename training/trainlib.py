@@ -551,6 +551,116 @@ def trainCPCVAE_small(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs
 
     return cpcvae
 
+
+def trainPCVAE_with_blackout(pcvae, dataset_name, num_train, epochs=20, lr=0.001, beta=1, 
+                             lambda_=1, l_weight=1, u_weight=1, run_name="default", 
+                             device="cuda", config=None):
+    """Semi-supervised training loop for a Prediction Constrained VAE using blackout-augmented images.
+    
+    The model learns to reconstruct the **unmasked image** from the **masked input**.
+    """
+
+    criterion_recon = nn.MSELoss(reduction="sum")
+    criterion_class = nn.CrossEntropyLoss()
+
+    # Set up wandb logging
+    print(f"Logging to {run_name}")
+    wandb.init(project="torchVAE", name=run_name, config=config, entity="hopelab-hmc")
+
+    # Load blackout dataset
+    (data_l_masked, data_u_masked), (data_l_unmasked, data_u_unmasked) = blackout_dataloader(dataset_name, num_train)
+
+    # Create DataLoaders
+    batch_size = config["training"]["batch_size"]
+    dataLoader_l_masked = torch.utils.data.DataLoader(data_l_masked, batch_size=batch_size, shuffle=True)
+    dataLoader_u_masked = torch.utils.data.DataLoader(data_u_masked, batch_size=batch_size, shuffle=False)
+    dataLoader_l_unmasked = torch.utils.data.DataLoader(data_l_unmasked, batch_size=batch_size, shuffle=True)
+    dataLoader_u_unmasked = torch.utils.data.DataLoader(data_u_unmasked, batch_size=batch_size, shuffle=False)
+
+    # Define optimizer
+    optimizer = torch.optim.Adam(pcvae.parameters(), lr=lr)
+    progress = tqdm.trange(epochs)
+
+    for epoch in progress:
+        print(epoch)
+        pcvae.train()
+
+        # Create iterators to match masked & unmasked data
+        if len(dataLoader_u_masked) < len(dataLoader_l_masked):
+            u_iter_masked = itertools.cycle(dataLoader_u_masked)
+            u_iter_unmasked = itertools.cycle(dataLoader_u_unmasked)
+            l_iter_masked = iter(dataLoader_l_masked)
+            l_iter_unmasked = iter(dataLoader_l_unmasked)
+        else:
+            l_iter_masked = itertools.cycle(dataLoader_l_masked)
+            l_iter_unmasked = itertools.cycle(dataLoader_l_unmasked)
+            u_iter_masked = iter(dataLoader_u_masked)
+            u_iter_unmasked = iter(dataLoader_u_unmasked)
+
+        num_batches = max(len(dataLoader_u_masked), len(dataLoader_l_masked))
+
+        # Iterate through batches
+        for _ in range(num_batches):
+            # Unlabeled data (masked input + unmasked target)
+            x_u_masked, _ = next(u_iter_masked)
+            x_u_unmasked, _ = next(u_iter_unmasked)
+
+            # Labeled data (masked input + unmasked target + labels)
+            x_l_masked, y_l = next(l_iter_masked)
+            x_l_unmasked, _ = next(l_iter_unmasked)
+
+            x_u_masked = x_u_masked.to(device)
+            x_u_unmasked = x_u_unmasked.to(device)
+            x_l_masked, y_l = x_l_masked.to(device), y_l.to(device)
+            x_l_unmasked = x_l_unmasked.to(device)
+
+            optimizer.zero_grad()
+
+            # Process unlabeled data
+            mu_u, logvar_u, x_hat_u, _ = pcvae(x_u_masked)
+            recon_loss_u = criterion_recon(x_hat_u, x_u_unmasked)  # Compare to unmasked image
+            kl_loss_u = kl_divergence(mu_u, logvar_u)
+            loss_u = recon_loss_u + beta * kl_loss_u
+
+            # Process labeled data
+            mu_l, logvar_l, x_hat_l, logits = pcvae(x_l_masked)
+            recon_loss_l = criterion_recon(x_hat_l, x_l_unmasked)  # Compare to unmasked image
+            kl_loss_l = kl_divergence(mu_l, logvar_l)
+            class_loss = criterion_class(logits, y_l)
+
+            loss_l = recon_loss_l + beta * kl_loss_l + lambda_ * class_loss
+
+            # Combine all losses
+            total_loss = u_weight * loss_u + l_weight * loss_l
+            total_loss.backward()
+            optimizer.step()
+
+        # Log the losses
+        with torch.no_grad():
+            recon_loss = u_weight * recon_loss_u + l_weight * recon_loss_l
+            kl_loss = u_weight * kl_loss_u + l_weight * kl_loss_l
+
+            labeled_accuracy = validate_model(pcvae, dataLoader_l_unmasked, device)
+            unlabeled_accuracy = validate_model(pcvae, dataLoader_u_unmasked, device)
+
+            wandb.log(
+                {
+                    "Reconstruction Loss": recon_loss.item(),
+                    "KL Loss": kl_loss.item(),
+                    "Classifier Loss": class_loss.item(),
+                    "Total Loss": total_loss.item(),
+                    "Train Accuracy": labeled_accuracy,
+                    "Test Accuracy": unlabeled_accuracy,
+                }
+            )
+
+        progress.set_description(
+            f"Total Loss: {total_loss:.3f}, Recon: {recon_loss:.3f}, KL: {kl_loss:.3f}, Class: {class_loss:.3f}, "
+            f"Train Accuracy: {labeled_accuracy:.3f}, Test Accuracy: {unlabeled_accuracy:.3f}"
+        )
+
+    return pcvae
+
 def trainCPCVAE_saheli(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, lr=0.001, beta=1, \
     lambda_=1, gamma=1, l_weight=1, u_weight=1, run_name="default", device="cuda", config=None, valid_data=None
 ):

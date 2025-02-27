@@ -1,0 +1,18 @@
+run_name: "pcvae_masked"
+model:
+    name: "PCVAE"
+    latent_dims: 20
+    architecture: "lienar"
+    beta: 1
+    lambda: 1000
+    label_weight: 0.001
+    unlabel_weight: 1
+    num_classes: 10
+training:
+    batch_size: 32
+    learning_rate: 0.001
+    num_epochs: 20
+    save_model: true
+dataset:
+    name: "MNIST"
+    num_train: 100
