@@ -1,0 +1,13 @@
+run_name: vae_mnist_test
+model:
+    name: VAE
+    latent_dims: 10
+    architecture: conv
+    beta: 1.0
+training:
+    batch_size: 128
+    learning_rate: 0.001
+    num_epochs: 20
+    save_model: true
+dataset:
+    name: MNIST

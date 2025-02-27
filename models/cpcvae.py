@@ -31,25 +31,29 @@ class ConsistencyConstrainedVAE(VariationalAutoencoder):
     def forward(self, x):
         """Encodes, decodes, re-encodes the image. Classifies the input x."""
 
-        mu_z, sigma_z = self.encoder(x)
-        z = self.encoder.sample(mu_z, sigma_z)
+        mu_z, logvar_z = self.encoder(x)
+        z = self.encoder.sample(mu_z, logvar_z)
 
         if self.architecture == "fc" and self.decoder.distn == "bern":
             image_size = math.isqrt(self.decoder.output_dims)
             mu_x = self.decoder(z).reshape((-1, 1, image_size, image_size))
             xhat = self.decoder.sample(mu_x)
         else:
-            mu_x, sigma_x = self.decoder(z)
-            xhat = self.decoder.sample(mu_x, sigma_x)
+            mu_x, logvar_x = self.decoder(z)
+            xhat = self.decoder.sample(mu_x, logvar_x)
 
         # make classifications based on latent variable z
         logits_z = self.classifier(z)
 
         # Re-encode xhat to zhat
-        mu_zhat, sigma_zhat = self.encoder(xhat)
-        zhat = self.encoder.sample(mu_zhat, sigma_zhat)
+        mu_zhat, logvar_zhat = self.encoder(xhat)
+        zhat = self.encoder.sample(mu_zhat, logvar_zhat)
 
         # make secondary classifications from zhat
         logits_zhat = self.classifier(zhat)
+        
+        # generate second reconstruction
+        mu_xhat, logvar_xhat = self.decoder(zhat)
+        x_hat_2 = self.decoder.sample(mu_xhat, logvar_xhat)
 
-        return mu_z, sigma_z, mu_x, xhat, logits_z, logits_zhat
+        return mu_z, logvar_z, mu_x, xhat, logits_z, logits_zhat, x_hat_2

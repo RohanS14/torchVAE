@@ -292,7 +292,7 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
     print(f"Logging to {run_name}")
     wandb.init(project="torchVAE", name=run_name, config=config, entity="hopelab-hmc")
 
-    optimizer = torch.optim.Adam(cpcvae.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(cpcvae.parameters(), lr=lr, weight_decay=1e-2)
     progress = tqdm.trange(epochs)
 
     for epoch in progress:
@@ -321,9 +321,7 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
             optimizer.zero_grad()
 
             # process unlabeled data
-            mu_u, logvar_u, probs_xhat_u, x_hat_u, logits_z_u, logits_zhat_u = cpcvae(
-                x_u
-            )
+            mu_u, logvar_u, probs_xhat_u, x_hat_u, logits_z_u, logits_zhat_u, x_hat_2_u = cpcvae(x_u)
 
             assert (
                 x_u.shape == x_hat_u.shape
@@ -336,29 +334,29 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
                 bern = torch.distributions.ContinuousBernoulli(probs=probs_xhat_u)
                 recon_loss_u = -bern.log_prob(x_u).sum()
             else:
-                recon_loss_u = criterion_recon(x_hat_u, x_u)
+                recon_loss_u = criterion_recon(x_hat_u, x_u) + criterion_recon(x_hat_2_u, x_u)
 
             kl_loss_u = kl_divergence(mu_u, logvar_u)
-
-            loss_u = recon_loss_u + beta * kl_loss_u
 
             # added consistency for ul too
             consistency_loss_u = criterion_consistency(
                 logits_zhat_u, F.softmax(logits_z_u, dim=-1)
             )
-            loss_u += gamma * consistency_loss_u
+            
+            loss_u = recon_loss_u + beta * kl_loss_u + gamma * consistency_loss_u
 
             # process labeled data
-            mu_l, logvar_l, probs_xhat_l, x_hat_l, logits_z_l, logits_zhat_l = cpcvae(x_l)
+            mu_l, logvar_l, probs_xhat_l, x_hat_l, logits_z_l, logits_zhat_l, x_hat_2_l = cpcvae(x_l)
 
             if cpcvae.decoder.distn == "bern":
                 bern = torch.distributions.ContinuousBernoulli(probs=probs_xhat_l)
                 recon_loss_l = -bern.log_prob(x_l).sum()
             else:
-                recon_loss_l = criterion_recon(x_hat_l, x_l)
+                recon_loss_l = criterion_recon(x_hat_l, x_l) + criterion_recon(x_hat_2_l, x_l)
 
             kl_loss_l = kl_divergence(mu_l, logvar_l)
             class_loss = criterion_class(logits_z_l, y_l)
+            # TODO check where softmax applied vs not applied
             consistency_loss_l = criterion_consistency(
                 logits_zhat_l, F.softmax(logits_z_l, dim=-1)
             )
@@ -366,23 +364,12 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
             # aggregate label consistency
             # cross entropy loss between the distribution of predicted labels and uniform target
             probs = F.softmax(logits_z_u, dim=-1)
-
-
-            # preds = torch.argmax(probs, dim=-1)
-            # counts = torch.bincount(preds, minlength=cpcvae.classifier.num_classes)
-            # assert counts.shape == (
-            #     cpcvae.classifier.num_classes,
-            # ), f"Counts shape is wrong: {counts.shape}"
-            # counts = counts / counts.sum()
-            # replace this code with mean of probs / dimension 0
             counts = probs.mean(dim=0)
             assert torch.isclose(counts.sum(), torch.tensor(1.0)), f"Counts don't sum to 1: {counts.sum()}"
-            agg_loss = criterion_aggregate(
+            agg_loss = 1280 * criterion_aggregate(
                 counts, torch.ones_like(counts) / cpcvae.classifier.num_classes
             )
-
-            # this is not doing anything because argmax and bincount are nondifferentiable
-
+            
             loss_l = (
                 recon_loss_l
                 + beta * kl_loss_l
@@ -390,7 +377,11 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
                 + gamma * consistency_loss_l
                 + agg_loss
             )
-
+            
+            # # printed weighted losses
+            # print(f"UL Recon Loss: {recon_loss_u}, KL Loss: {beta * kl_loss_u}, Consistency Loss: {gamma * consistency_loss_u}")
+            # print(f"L Recon Loss: {recon_loss_l}, KL Loss: {beta * kl_loss_l}, Class Loss: {lambda_ * class_loss}, Consistency Loss: {gamma * consistency_loss_l}, Aggregate Loss: {agg_loss}")
+            
             # combine all losses
             total_loss = u_weight * loss_u + l_weight * loss_l
             total_loss.backward()
@@ -427,3 +418,248 @@ def trainCPCVAE(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, l
         )
 
     return cpcvae
+
+
+def trainCPCVAE_small(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, lr=0.001, beta=1, \
+    lambda_=1, gamma=1, l_weight=1, u_weight=1, run_name="default", device="cuda", config=None,
+):
+    """Semi-supervised training loop for a Consistency Constrained VAE."""
+
+    criterion_recon = nn.MSELoss(reduction="sum")
+    criterion_class = nn.CrossEntropyLoss()
+    criterion_consistency = nn.CrossEntropyLoss()
+    criterion_aggregate = nn.CrossEntropyLoss()
+
+    # set up wandb logging
+    print(f"Logging to {run_name}")
+    wandb.init(project="torchVAE", name=run_name, config=config, entity="hopelab-hmc")
+
+    optimizer = torch.optim.Adam(cpcvae.parameters(), lr=lr, weight_decay=1e-2)
+    progress = tqdm.trange(epochs)
+
+    for epoch in progress:
+        print(epoch)
+
+        cpcvae.train()
+
+        # iterate through batches (not cycling the smaller dataloader)
+        for unlabeled, labeled in zip(unlabeled_data_loader, labeled_data_loader):
+            x_u, _ = unlabeled
+            x_l, y_l = labeled
+
+            x_u = x_u.to(device)
+            x_l, y_l = x_l.to(device), y_l.to(device)
+
+            optimizer.zero_grad()
+
+            # process unlabeled data
+            mu_u, logvar_u, probs_xhat_u, x_hat_u, logits_z_u, logits_zhat_u, x_hat_2_u = cpcvae(x_u)
+
+            assert (
+                x_u.shape == x_hat_u.shape
+            ), f"Shapes don't match: {x_u.shape} and {x_hat_u.shape}"
+
+            assert x_u.all() <= 1 and x_u.all() >= 0, "x_u not in [0, 1]"
+            assert x_hat_u.all() <= 1 and x_hat_u.all() >= 0, "x_u not in [0, 1]"
+
+            if cpcvae.decoder.distn == "bern":
+                bern = torch.distributions.ContinuousBernoulli(probs=probs_xhat_u)
+                recon_loss_u = -bern.log_prob(x_u).sum()
+            else:
+                recon_loss_u = criterion_recon(x_hat_u, x_u) + criterion_recon(x_hat_2_u, x_u)
+
+            kl_loss_u = kl_divergence(mu_u, logvar_u)
+
+            # added consistency for ul too
+            consistency_loss_u = criterion_consistency(
+                logits_zhat_u, F.softmax(logits_z_u, dim=-1)
+            )
+            
+            loss_u = recon_loss_u + beta * kl_loss_u + gamma * consistency_loss_u
+
+            # process labeled data
+            mu_l, logvar_l, probs_xhat_l, x_hat_l, logits_z_l, logits_zhat_l, x_hat_2_l = cpcvae(x_l)
+
+            if cpcvae.decoder.distn == "bern":
+                bern = torch.distributions.ContinuousBernoulli(probs=probs_xhat_l)
+                recon_loss_l = -bern.log_prob(x_l).sum()
+            else:
+                recon_loss_l = criterion_recon(x_hat_l, x_l) + criterion_recon(x_hat_2_l, x_l)
+
+            kl_loss_l = kl_divergence(mu_l, logvar_l)
+            class_loss = criterion_class(logits_z_l, y_l)
+            # TODO check where softmax applied vs not applied
+            consistency_loss_l = criterion_consistency(
+                logits_zhat_l, F.softmax(logits_z_l, dim=-1)
+            )
+
+            # aggregate label consistency
+            # cross entropy loss between the distribution of predicted labels and uniform target
+            probs = F.softmax(logits_z_u, dim=-1)
+            counts = probs.mean(dim=0)
+            assert torch.isclose(counts.sum(), torch.tensor(1.0)), f"Counts don't sum to 1: {counts.sum()}"
+            agg_loss = 1280 * criterion_aggregate(
+                counts, torch.ones_like(counts) / cpcvae.classifier.num_classes
+            )
+            
+            loss_l = (
+                recon_loss_l
+                + beta * kl_loss_l
+                + lambda_ * class_loss
+                + gamma * consistency_loss_l
+                + agg_loss
+            )
+            
+            # # printed weighted losses
+            # print(f"UL Recon Loss: {recon_loss_u}, KL Loss: {beta * kl_loss_u}, Consistency Loss: {gamma * consistency_loss_u}")
+            # print(f"L Recon Loss: {recon_loss_l}, KL Loss: {beta * kl_loss_l}, Class Loss: {lambda_ * class_loss}, Consistency Loss: {gamma * consistency_loss_l}, Aggregate Loss: {agg_loss}")
+            
+            # combine all losses
+            total_loss = u_weight * loss_u + l_weight * loss_l
+            total_loss.backward()
+            optimizer.step()
+
+        with torch.no_grad():
+            # this currently logs the scaled losses
+            recon_loss = u_weight * recon_loss_u + l_weight * recon_loss_l
+            kl_loss = beta * (u_weight * kl_loss_u + l_weight * kl_loss_l)
+            class_loss = lambda_ * l_weight * class_loss
+            consistency_loss = gamma * (
+                u_weight * consistency_loss_u + l_weight * consistency_loss_l
+            )
+
+            labeled_accuracy = validate_model(cpcvae, labeled_data_loader, device)
+            unlabeled_accuracy = validate_model(cpcvae, unlabeled_data_loader, device)
+
+            wandb.log(
+                {
+                    "Reconstruction Loss": recon_loss.item(),
+                    "KL Loss": kl_loss.item(),
+                    "Classifier Loss": class_loss.item(),
+                    "Consistency Loss": consistency_loss.item(),
+                    "Aggregate Loss": agg_loss.item(),
+                    "Total Loss": total_loss.item(),
+                    "Train Accuracy": labeled_accuracy,
+                    "Test Accuracy": unlabeled_accuracy,
+                }
+            )
+
+        progress.set_description(
+            f"Total Loss: {total_loss:.3f}, Recon: {recon_loss:.3f}, KL: {kl_loss:.3f}, Class: {class_loss:.3f},"
+            f"Consistency: {consistency_loss:.3f}, Aggregate: {agg_loss:.3f}, Train Acc: {labeled_accuracy:.3f}, Test Acc: {unlabeled_accuracy:.3f}"
+        )
+
+    return cpcvae
+
+def trainCPCVAE_saheli(cpcvae, unlabeled_data_loader, labeled_data_loader, epochs=20, lr=0.001, beta=1, \
+    lambda_=1, gamma=1, l_weight=1, u_weight=1, run_name="default", device="cuda", config=None, valid_data=None
+):
+    """Semi-supervised training loop for a Consistency Constrained VAE."""
+
+    criterion_recon = nn.MSELoss(reduction="sum")
+    criterion_class = nn.CrossEntropyLoss()
+    criterion_consistency = nn.CrossEntropyLoss()
+    criterion_aggregate = nn.CrossEntropyLoss()
+
+    print(f"Logging to {run_name}")
+    wandb.init(project="torchVAE", name=run_name, config=config, entity="hopelab-hmc")
+
+    optimizer = torch.optim.Adam(cpcvae.parameters(), lr=lr, weight_decay=1e-2)
+    progress = tqdm.trange(epochs)
+
+    for epoch in progress:
+        print(epoch)
+
+        cpcvae.train()
+        avg_loss, avg_loss_vae, avg_loss_classifer = [], [], []
+        avg_label_consistency, avg_loss_consistency = [], []
+        avg_loss_recon, avg_loss_kl = [], []
+        avg_loss_recon_u, avg_loss_kl_u = [], []
+        avg_loss_recon_l, avg_loss_kl_l = [], []
+        accuracy, num_data = 0, 0
+        avg_hist = np.array([0.0] * 10)
+
+        for unlabeled, labeled in zip(unlabeled_data_loader, labeled_data_loader):
+            x_u, _ = unlabeled
+            x_l, y_l = labeled
+
+            x_u, x_l, y_l = x_u.to(device), x_l.to(device), y_l.to(device)
+            optimizer.zero_grad()
+
+            # Process unlabeled data
+            
+            mu_u, logvar_u, probs_xhat_u, x_hat_u, logits_z_u, logits_zhat_u, x_hat_2_u = cpcvae(x_u)
+            y_hat_pred_u = F.softmax(logits_zhat_u, dim=-1)
+            y_pred_u = F.softmax(logits_z_u, dim=-1)
+
+            loss_recon_u = ((x_u - x_hat_2_u) ** 2).sum() + ((x_u - x_hat_u) ** 2).sum()
+            loss_kl_u = kl_divergence(mu_u, logvar_u)
+            loss_vae = (loss_recon_u + loss_kl_u) / (len(x_u) + len(x_l))
+
+            consistency_loss = 20 * criterion_consistency(y_hat_pred_u, y_pred_u)
+            histogram = torch.sum(y_hat_pred_u, dim=0)
+
+            # Process labeled data
+            mu_l, logvar_l, probs_xhat_l, x_hat_l, logits_z_l, logits_zhat_l, x_hat_2_l = cpcvae(x_l)
+            y_hat_pred_l = F.softmax(logits_zhat_l, dim=-1)
+            y_pred_l = F.softmax(logits_z_l, dim=-1)
+
+            loss_recon_l = ((x_l - x_hat_2_l) ** 2).sum() + ((x_l - x_hat_l) ** 2).sum()
+            loss_kl_l = kl_divergence(mu_l, logvar_l)
+            loss_vae += (loss_recon_l + loss_kl_l) / (len(x_u) + len(x_l))
+
+            consistency_loss += 20 * criterion_consistency(y_hat_pred_l, y_pred_l)
+            histogram += torch.sum(y_hat_pred_l, dim=0)
+
+            loss_classifier = 100 * criterion_class(y_hat_pred_l, y_l)
+            avg_hist += histogram.cpu().detach().numpy()
+            histogram = histogram / torch.sum(histogram)
+            aggregate_label_consistency = 3200 * criterion_aggregate(histogram, torch.tensor([.1] * 10).to(device))
+            loss = loss_vae + loss_classifier + consistency_loss + aggregate_label_consistency
+            loss.backward()
+            optimizer.step()
+
+            avg_loss.append(loss.item())
+            avg_loss_vae.append(loss_vae.item())
+            avg_loss_classifer.append(loss_classifier.item())
+            avg_label_consistency.append(aggregate_label_consistency.item())
+            avg_loss_consistency.append(consistency_loss.item())
+
+            avg_loss_recon.append(loss_recon_u.item() + loss_recon_l.item())
+            avg_loss_kl.append(loss_kl_u.item() + loss_kl_l.item())
+            avg_loss_recon_u.append(loss_recon_u.item())
+            avg_loss_kl_u.append(loss_kl_u.item())
+            avg_loss_recon_l.append(loss_recon_l.item())
+            avg_loss_kl_l.append(loss_kl_l.item())
+
+            accuracy += sum(torch.argmax(y_hat_pred_l, dim=1) == y_l).item()
+            num_data += len(y_l)
+
+        wandb.log({
+            "Loss/train": np.mean(avg_loss),
+            "Loss_VAE/train": np.mean(avg_loss_vae),
+            "Loss_Classifier/train": np.mean(avg_loss_classifer),
+            "Loss_Consistency/train": np.mean(avg_loss_consistency),
+            "Aggregate_Label_Consistency/train": np.mean(avg_label_consistency),
+            "Loss_Recon/train": np.mean(avg_loss_recon),
+            "Loss_KL/train": np.mean(avg_loss_kl),
+            "Loss_Recon_U/train": np.mean(avg_loss_recon_u),
+            "Loss_KL_U/train": np.mean(avg_loss_kl_u),
+            "Loss_Recon_L/train": np.mean(avg_loss_recon_l),
+            "Loss_KL_L/train": np.mean(avg_loss_kl_l),
+            "Accuracy/train": accuracy / num_data
+        })
+
+        if epoch % 100 == 0:
+            with torch.no_grad():
+                labeled_accuracy = validate_model(cpcvae, labeled_data_loader, device)
+                unlabeled_accuracy = validate_model(cpcvae, unlabeled_data_loader, device)
+                valid_accuracy = validate_model(cpcvae, valid_data, device) if valid_data else 0
+            wandb.log({
+                "Accuracy/label": labeled_accuracy,
+                "Accuracy/unlabel": unlabeled_accuracy,
+                "Accuracy/valid": valid_accuracy
+            })
+            
+    return cpcvae
+

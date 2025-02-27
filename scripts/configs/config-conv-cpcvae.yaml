@@ -1,4 +1,4 @@
-run_name: "test_cpcvae_mnist_agg"
+run_name: "test_cpcvae_mnist_agg_stratify_2recon_saheliloop_long"
 model:
   name: "CPCVAE"
   layers: 2
@@ -6,15 +6,15 @@ model:
   architecture: "conv"
   dist: "norm"
   beta: 1
-  lambda: 25
-  gamma: 25
+  lambda: 275
+  gamma: 38
   label_weight: 1
   unlabel_weight: 1
   num_classes: 10
 training:
   batch_size: 64
   learning_rate: 0.001
-  num_epochs: 20
+  num_epochs: 20000
   save_model: true
 dataset:
   name: "MNIST"

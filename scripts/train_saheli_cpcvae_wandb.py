@@ -10,13 +10,13 @@ import matplotlib.pyplot as plt; plt.rcParams['figure.dpi'] = 200
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
-from torch.utils.tensorboard import SummaryWriter
-from random import shuffle
 import itertools
-import io
 import wandb
 
+wandb.init(project="torchVAE", name="saheli-conv-run-kl-log" ,entity="hopelab-hmc")
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 class VariationalEncoder(nn.Module):
     def __init__(self, latent_dims):
@@ -105,150 +105,153 @@ class VAEClassifer(nn.Module):
         #x_hat = VAE.decoder(z)
         #y_pred = self.classifier(z)
         return self.decoder(z), self.classifier(z)
-    
 
-batch_size = 50
-valid_batch_size = 6000
-def log_confusion_matrix(cm, writer, epoch):
+# Log confusion matrix to wandb
+def log_confusion_matrix(cm, epoch):
     class_names = list(range(10))
-    #plotting code obtained from https://towardsdatascience.com/exploring-confusion-matrix-evolution-on-tensorboard-e66b39f4ac12
-    figure = plt.figure(figsize=(8, 8))
-    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.title("Confusion matrix")
-    plt.colorbar()
-    tick_marks = np.arange(len(class_names))
-    plt.xticks(tick_marks, class_names, rotation=45)
-    plt.yticks(tick_marks, class_names)
-    
-    # Normalize the confusion matrix.
-    cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], decimals=2)
-    
-    # Use white text if squares are dark; otherwise black.
-    threshold = cm.max() / 2.
-    
-    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        color = "white" if cm[i, j] > threshold else "black"
-        plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
-        
-    plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label')
-    writer.add_figure('Confusion Matrix', figure, epoch)
-    plt.close(figure)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    cax = ax.matshow(cm, cmap=plt.cm.Blues)
+    plt.colorbar(cax)
+    ax.set_xticks(np.arange(len(class_names)))
+    ax.set_yticks(np.arange(len(class_names)))
+    ax.set_xticklabels(class_names)
+    ax.set_yticklabels(class_names)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title("Confusion Matrix")
+    wandb.log({f"Confusion Matrix/{epoch}": wandb.Image(fig)})
+    plt.close(fig)
 
-def log_label_dist(preds,writer,epoch):
-    figure = plt.figure(figsize=(8, 8))
-    plt.bar(list(range(10)),preds)
-    writer.add_figure('Labels Histogram', figure, epoch)
-    plt.close(figure)
-
-def sharpen(dist, T):
-    dist = dist**T
-    return dist/torch.sum(dist,dim=1).reshape((-1,1))
+def log_label_dist(preds, epoch):
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.bar(list(range(10)), preds)
+    plt.title("Label Distribution")
+    wandb.log({f"Label Distribution/{epoch}": wandb.Image(fig)})
+    plt.close(fig)
 
 def train(VAE, unlabelled_train_data, labelled_train_data, valid_data, epochs=20):
     opt = torch.optim.Adam(VAE.parameters(), weight_decay=1e-2)
-    logdir = "./runs/"
-    writer = SummaryWriter(logdir)
     pred_loss_func = nn.CrossEntropyLoss()
     highest_accuracy = 0
+    
     for epoch in tqdm(range(epochs)):
-        avg_loss = []
-        avg_loss_vae = []
-        avg_loss_classifer = []
-        avg_label_consistency = []
-        avg_loss_consistency = []
+        avg_loss_recon_u, avg_loss_kl_u = [], []
+        avg_loss_recon_l, avg_loss_kl_l = [], []
+        avg_loss_recon, avg_loss_kl = [], []
+        avg_loss, avg_loss_vae, avg_loss_classifer = [], [], []
+        avg_label_consistency, avg_loss_consistency = [], []
         avg_hist = np.array([0.0]*10)
-        accuracy = 0
-        num_data = 0
+        accuracy, num_data = 0, 0
+
         for unlabelled, labelled in zip(unlabelled_train_data, labelled_train_data):
-            
             unlabelled_x, _ = unlabelled
             labelled_x, y = labelled
-            unlabelled_x = unlabelled_x.to(device)
-            labelled_x = labelled_x.to(device)
-            y = y.to(device)
+            unlabelled_x, labelled_x, y = unlabelled_x.to(device), labelled_x.to(device), y.to(device)
             opt.zero_grad()
             
-            print("size", (len(unlabelled_x)+len(labelled_x)))
-            
+            # unlabelled 
             x_hat, y_pred = VAE(unlabelled_x)
             x_hat_hat, y_hat_pred = VAE(x_hat)
-            loss_vae = (((unlabelled_x - x_hat_hat)**2).sum() + ((unlabelled_x - x_hat)**2).sum() + VAE.encoder.kl)/(len(unlabelled_x)+len(labelled_x))
-            consistency_loss = 20*pred_loss_func(y_hat_pred,y_pred)
-            histogram = torch.sum(y_hat_pred,dim=0)
+            total_kl = VAE.encoder.kl
+             
+            loss_recon_u = ((unlabelled_x - x_hat_hat)**2).sum() + ((unlabelled_x - x_hat)**2).sum()
+            loss_kl_u = VAE.encoder.kl
+            loss_vae = (loss_recon_u + loss_kl_u) / (len(unlabelled_x) + len(labelled_x))
             
+            consistency_loss = 20 * pred_loss_func(y_hat_pred, y_pred)
+            histogram = torch.sum(y_hat_pred, dim=0)
+            
+            # labelled
             x_hat, y_pred = VAE(labelled_x)
             x_hat_hat, y_hat_pred = VAE(x_hat)
-            loss_vae += (((labelled_x - x_hat_hat)**2).sum() + ((labelled_x - x_hat)**2).sum() + VAE.encoder.kl)/(len(unlabelled_x)+len(labelled_x))
-            consistency_loss += 20*pred_loss_func(y_hat_pred,y_pred)
-            histogram += torch.sum(y_hat_pred,dim=0)
-            loss_classifer = 100*(pred_loss_func(y_hat_pred,y))
-
+            
+            loss_recon_l = ((labelled_x - x_hat_hat)**2).sum() + ((labelled_x - x_hat)**2).sum()
+            loss_kl_l = VAE.encoder.kl
+            loss_vae += (loss_recon_l + loss_kl_l) / (len(unlabelled_x) + len(labelled_x))
+            
+            consistency_loss += 20 * pred_loss_func(y_hat_pred, y_pred)
+            histogram += torch.sum(y_hat_pred, dim=0)
+            loss_classifer = 100 * pred_loss_func(y_hat_pred, y)
             avg_hist += histogram.cpu().detach().numpy()
-            histogram = histogram/torch.sum(histogram)
-            aggregate_label_consistency = 3200*pred_loss_func(histogram, torch.tensor([.1]*10).to(device))
-            loss = loss_vae+loss_classifer+consistency_loss+aggregate_label_consistency
-            
-            # print all loss terms
-            print(f"Loss VAE: {loss_vae}, Loss Classifier: {loss_classifer}, Loss Consistency: {consistency_loss}, Loss Aggregate Label Consistency: {aggregate_label_consistency}")
-            
+            histogram = histogram / torch.sum(histogram)
+            aggregate_label_consistency = 3200 * pred_loss_func(histogram, torch.tensor([.1]*10).to(device))
+            loss = loss_vae + loss_classifer + consistency_loss + aggregate_label_consistency
             loss.backward()
             opt.step()
-            avg_loss.append(loss)
-            avg_loss_vae.append(loss_vae)
-            avg_loss_classifer.append(loss_classifer)
-            avg_label_consistency.append(aggregate_label_consistency)
-            avg_loss_consistency.append(consistency_loss)
-            accuracy += sum(torch.argmax(y_hat_pred, dim=1) == y)
+            
+            avg_loss.append(loss.item())
+            avg_loss_vae.append(loss_vae.item())
+            avg_loss_classifer.append(loss_classifer.item())
+            avg_label_consistency.append(aggregate_label_consistency.item())
+            avg_loss_consistency.append(consistency_loss.item())
+            
+            avg_loss_recon.append(loss_recon_u.item() + loss_recon_l.item())
+            avg_loss_kl.append(loss_kl_u.item() + loss_kl_l.item())
+            avg_loss_recon_u.append(loss_recon_u.item())
+            avg_loss_kl_u.append(loss_kl_u.item())
+            avg_loss_recon_l.append(loss_recon_l.item())
+            avg_loss_kl_l.append(loss_kl_l.item())
+            
+            accuracy += sum(torch.argmax(y_hat_pred, dim=1) == y).item()
             num_data += len(y)
-        avg_vae = sum(avg_loss_vae)/len(avg_loss_vae)
-        avg_classifier = sum(avg_loss_classifer)/(len(avg_loss_classifer))
-        avg_label_consistency = sum(avg_label_consistency)/(len(avg_label_consistency))
-        avg_consistency = sum(avg_loss_consistency)/(len(avg_loss_consistency))
-        writer.add_scalar('Loss/train', avg_vae+avg_classifier+avg_label_consistency+avg_consistency, epoch)
-        writer.add_scalar('Loss_VAE/train', avg_vae, epoch)
-        writer.add_scalar('Loss_Classifer/train', avg_classifier, epoch)
-        writer.add_scalar('Loss_Consistency/train', avg_consistency, epoch)
-        writer.add_scalar('Agggregate_Label_consistency/train', aggregate_label_consistency, epoch)
-        writer.add_scalar('Accuracy/train',accuracy/num_data, epoch)
-        log_label_dist(avg_hist/sum(avg_hist), writer, epoch)
-        
-        with torch.no_grad():
-            highest_accuracy = max(highest_accuracy, validate(VAE, valid_data, writer, epoch, highest_accuracy))
-    return VAE 
 
-def validate(VAE, data, writer=None, epoch=None, highest_accuracy=None):
-    avg_loss = []
-    avg_loss_vae = []
-    avg_loss_classifer = []
-    accuracy = 0
-    num_data = 0
-    cm = np.zeros((10,10))
+        wandb.log({
+            "Loss/train": np.mean(avg_loss),
+            "Loss_VAE/train": np.mean(avg_loss_vae),
+            "Loss_Classifier/train": np.mean(avg_loss_classifer),
+            "Loss_Consistency/train": np.mean(avg_loss_consistency),
+            "Aggregate_Label_Consistency/train": np.mean(avg_label_consistency),
+            "Loss_Recon/train": np.mean(avg_loss_recon),
+            "Loss_KL/train": np.mean(avg_loss_kl),
+            "Loss_Recon_U/train": np.mean(avg_loss_recon_u),
+            "Loss_KL_U/train": np.mean(avg_loss_kl_u),
+            "Loss_Recon_L/train": np.mean(avg_loss_recon_l),
+            "Loss_KL_L/train": np.mean(avg_loss_kl_l),
+            
+            "Accuracy/train": accuracy / num_data
+        })
+        
+        # log_label_dist(avg_hist / sum(avg_hist), epoch)
+        
+        if epoch % 100 == 0:
+            with torch.no_grad():
+                highest_accuracy = max(highest_accuracy, validate(VAE, valid_data, epoch, highest_accuracy))
+    return VAE
+
+def validate(VAE, data, epoch, highest_accuracy):
+    avg_loss_vae, avg_loss_classifer = [], []
+    accuracy, num_data = 0, 0
+    # cm = np.zeros((10,10))
     pred_loss_func = nn.CrossEntropyLoss()
+    
     for x, y in data:
-        x = x.to(device) # GPU
-        y = y.to(device)
+        x, y = x.to(device), y.to(device)
         x_hat, y_pred = VAE(x)
         x_hat_hat, y_hat_pred = VAE(x_hat)
-        loss_vae = (((x - x_hat)**2).sum() + ((x - x_hat_hat)**2).sum() + VAE.encoder.kl)/batch_size
-        loss_classifer = 50*pred_loss_func(y_hat_pred, y) + ((y_pred-y_hat_pred)**2).sum()
-        avg_loss.append(loss_vae+loss_classifer)
-        avg_loss_vae.append(loss_vae)
-        avg_loss_classifer.append(loss_classifer)
-        accuracy += sum(torch.argmax(y_hat_pred, dim=1) == y)
+        loss_vae = (((x - x_hat)**2).sum() + ((x - x_hat_hat)**2).sum() + VAE.encoder.kl) / batch_size
+        loss_classifer = 50 * pred_loss_func(y_hat_pred, y) + ((y_pred - y_hat_pred)**2).sum()
+        avg_loss_vae.append(loss_vae.item())
+        avg_loss_classifer.append(loss_classifer.item())
+        accuracy += sum(torch.argmax(y_hat_pred, dim=1) == y).item()
         num_data += len(y)
-        cm += confusion_matrix(y.cpu().detach().numpy(), torch.argmax(y_hat_pred, dim=1).cpu().detach().numpy())
-    if writer:
-        writer.add_scalar('Loss/valid', sum(avg_loss_vae)/len(avg_loss_vae)+sum(avg_loss_classifer)/(len(avg_loss_classifer)), epoch)
-        writer.add_scalar('Loss_VAE/valid', sum(avg_loss_vae)/len(avg_loss_vae), epoch)
-        writer.add_scalar('Loss_Classifer/valid', sum(avg_loss_classifer)/(len(avg_loss_classifer)), epoch)
-        writer.add_scalar('Accuracy/valid',accuracy/num_data, epoch)
-        log_confusion_matrix(cm, writer, epoch)
-    if highest_accuracy and accuracy/num_data > highest_accuracy:
-            torch.save(VAE.state_dict(), "mnist_model100labels_aggregate_label_long.sav")
-            highest_accuracy = accuracy/num_data
-    return accuracy/num_data
+        
+        # cm += confusion_matrix(y.cpu().numpy(), torch.argmax(y_hat_pred, dim=1).cpu().numpy())
+    
+    wandb.log({
+        "Loss/valid": np.mean(avg_loss_vae) + np.mean(avg_loss_classifer),
+        "Loss_VAE/valid": np.mean(avg_loss_vae),
+        "Loss_Classifier/valid": np.mean(avg_loss_classifer),
+        "Accuracy/valid": accuracy / num_data
+    })
+    
+    # log_confusion_matrix(cm, epoch)
+    
+    if highest_accuracy and accuracy / num_data > highest_accuracy:
+        torch.save(VAE.state_dict(), "mnist_model100labels_aggregate_label_long.sav")
+        highest_accuracy = accuracy / num_data
+    return accuracy / num_data
+
+# Training
 
 batch_size = 50
 valid_batch_size = 6000

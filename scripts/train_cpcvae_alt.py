@@ -8,7 +8,7 @@ import yaml
 import os
 
 from models.cpcvae import ConsistencyConstrainedVAE
-from training.trainlib import trainCPCVAE
+from training.trainlib import trainCPCVAE, trainCPCVAE_small, trainCPCVAE_saheli
 from utils.datatools import load_data
 
 
@@ -57,9 +57,47 @@ def returnCPCVAE(config):
     RUN_NAME = config["run_name"]
 
     # Get unlabelled data
-    data_l, data_u, INPUT_SIZE = load_data(DATASET_NAME, NUM_TRAIN)
-    dataLoader_l = DataLoader(data_l, batch_size=BATCH_SIZE, shuffle=True)
-    dataLoader_u = DataLoader(data_u, batch_size=BATCH_SIZE, shuffle=True)
+    # data_l, data_u, INPUT_SIZE = load_data(DATASET_NAME, NUM_TRAIN)
+    # dataLoader_l = DataLoader(data_l, batch_size=BATCH_SIZE, shuffle=True)
+    # dataLoader_u = DataLoader(data_u, batch_size=BATCH_SIZE, shuffle=True)
+
+    # Saheli's data loading code
+    
+    import torchvision
+    from sklearn.model_selection import train_test_split
+    from torch.utils.data import DataLoader, Dataset
+
+    batch_size = 50
+    valid_batch_size = 6000
+
+    # batch_size = 128
+
+    class SimpleDataset(Dataset):
+        def __init__(self, x,y):
+            self.x = x
+            self.y = y
+
+        def __getitem__(self, idx):
+            return self.x[idx], self.y[idx]
+        
+        def __len__(self):
+            return len(self.y)
+
+    data = torchvision.datasets.MNIST('./mnist_data', transform=torchvision.transforms.ToTensor(), download=True, train=True)
+    images, labels = zip(*data)
+    train_images, valid_images, train_labels, valid_labels = train_test_split(images, labels, test_size=.1, stratify=labels, random_state=72)
+    unlabelled_images, labelled_images, unlabelled_labels, labelled_labels = train_test_split(train_images, train_labels, test_size=100/len(train_labels), stratify=train_labels, random_state=54)
+
+    dataLoader_l = torch.utils.data.DataLoader(SimpleDataset(labelled_images, labelled_labels),batch_size=batch_size,shuffle=True)
+    dataLoader_u = torch.utils.data.DataLoader(SimpleDataset(unlabelled_images, unlabelled_labels),batch_size=batch_size,shuffle=True)
+    valid_data = torch.utils.data.DataLoader(SimpleDataset(valid_images, valid_labels),batch_size=valid_batch_size,shuffle=True)
+
+    test_data = torch.utils.data.DataLoader(
+            torchvision.datasets.MNIST('./mnist_data',
+                transform=torchvision.transforms.ToTensor(),
+                download=True, train=False),
+            batch_size=1000,
+            shuffle=True)
 
     # check the distribution of labels in the train set
     for i in range(NUM_CLASSES):
@@ -67,13 +105,31 @@ def returnCPCVAE(config):
             f"Number of samples with label {i}: {len([x for x in dataLoader_l.dataset if x[1] == i])}"
         )
 
+    INPUT_SIZE = 28 * 28
+
     # Create an instance of CPCVAE
     cpcvae = ConsistencyConstrainedVAE(
         ARCHITECTURE, LATENT_DIMS, NUM_CLASSES, INPUT_SIZE, DIST
     ).to(device)
 
     # Train CPCVAE
-    cpcvae = trainCPCVAE(
+    # cpcvae = trainCPCVAE(
+    #     cpcvae,
+    #     dataLoader_u,
+    #     dataLoader_l,
+    #     epochs=NUM_EPOCHS,
+    #     lr=LEARNING_RATE,
+    #     beta=BETA,
+    #     lambda_=LAMBDA_VAL,
+    #     gamma = GAMMA,
+    #     l_weight=L_WEIGHT,
+    #     u_weight=U_WEIGHT,
+    #     run_name=RUN_NAME,
+    #     device=device,
+    #     config=config,
+    # )
+    
+    cpcvae = trainCPCVAE_saheli(
         cpcvae,
         dataLoader_u,
         dataLoader_l,
@@ -87,6 +143,7 @@ def returnCPCVAE(config):
         run_name=RUN_NAME,
         device=device,
         config=config,
+        valid_data=valid_data
     )
 
     # Save the model
