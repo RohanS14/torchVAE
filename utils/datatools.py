@@ -6,7 +6,7 @@ from torchvision import transforms
 from torch.utils.data import Dataset, ConcatDataset, random_split
 from tqdm import tqdm
 from collections import defaultdict
-
+from .transforms import BlackoutWithMask
 
 class EncodedDataset(Dataset):
     """Dataset wrapper that encodes all images beforehand."""
@@ -77,7 +77,7 @@ def blackout_dataloader(DATASET_NAME, NUM_TRAIN=None):
     
     blackout_transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.RandomErasing(p=1, scale=(0.5, 0.75), ratio=(0.3, 3.3), value=0)  # Directly applying RandomErasing
+        transforms.RandomErasing(p=1, scale=(0.1, 0.2), ratio=(0.8, 1.2), value=0)  # Directly applying RandomErasing
     ])
     
     transform = transforms.Compose([

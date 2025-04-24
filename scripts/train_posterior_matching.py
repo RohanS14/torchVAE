@@ -1,175 +1,171 @@
-import sys
+import os
+import argparse
+import yaml
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-import numpy as np
+import torch.nn.functional as F
+import tqdm
 import wandb
-#TODO: future : inpaint, colorization, low rez-> high rez
-import argparse
-import json 
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--config', type=str, default=None, help='Path to the config file')
-args = parser.parse_args()
+# Importing existing modules
+from models.vae import VariationalAutoencoder
+from training.trainlib import trainVAE
+from utils.datatools import load_data, blackout_dataloader
 
-with open(args.config, 'r') as f:
-    config = json.load(f)
 
-from torch.utils.data import Dataset
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+def kl_gaussian(mu_target, logvar_target, mu_source, logvar_source):
+    """
+    Computes KL divergence: KL(N(target) || N(source)).
+    """
+    sigma_t_sq = torch.exp(logvar_target)
+    sigma_s_sq = torch.exp(logvar_source)
+    term1 = logvar_source - logvar_target
+    term2 = (sigma_t_sq + (mu_target - mu_source) ** 2) / sigma_s_sq
+    kl = 0.5 * torch.sum(term1 + term2 - 1, dim=1)  # Sum over latent dims
+    return kl.mean()  # Mean over batch
 
-root_path = '/cs/cs152/individual/ishita/checkpoints/'
-if root_path not in sys.path:
-    sys.path.insert(1, root_path)
 
-from models.pcvae import PredictionConstrainedVAE
-from utils.vistools import plotPCAdist, stackedHist
-from masked_pcvae.train_pcvae_blackout import loadData
+def train_posterior_encoder(old_encoder, new_encoder, full_loader, blackout_loader, epochs, lr, run_name, device):
+    """Train a new encoder using KL loss to match old encoder."""
+    print(f"Starting posterior matching training: {run_name}")
+    wandb.init(project="torchVAE", name=run_name, entity="hopelab-hmc")
 
-def kl_divergence_posterior(post1_mu, post1_logvar, post2_mu, post2_logvar): 
+    for param in old_encoder.parameters():
+        param.requires_grad = False
+    old_encoder.eval()
+    optimizer = torch.optim.Adam(new_encoder.parameters(), lr=lr)
+
+    progress = tqdm.trange(epochs)
+    for epoch in progress:
+        epoch_loss = 0.0
+        new_encoder.train()
+
+        for (xb, _), (xf, _) in zip(blackout_loader, full_loader):
+            xb, xf = xb.to(device), xf.to(device)
+            optimizer.zero_grad()
+            
+            with torch.no_grad():
+                mu_old, logvar_old = old_encoder(xf)
+            
+            mu_new, logvar_new = new_encoder(xb)
+            loss = kl_gaussian(mu_new, logvar_new, mu_old, logvar_old)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+
+        avg_loss = epoch_loss / len(full_loader)
+        progress.set_description(f"Epoch [{epoch+1}/{epochs}] KL: {avg_loss:.4f}")
+        wandb.log({"Posterior KL": avg_loss})
+
+    wandb.finish()
+    return new_encoder
+
+
+def main(config):
+    """Main pipeline for posterior matching training."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Stage 1: Train Standard VAE
+    run_name_vae = config["run_name"] + "_vae"
+    print(f"Training standard VAE: {run_name_vae}")
     
-    kl = 0.5 * (post2_logvar - post1_logvar + (torch.exp(post1_logvar) + (post1_mu - post2_mu)**2) / torch.exp(post2_logvar) - 1) 
-    return kl.sum(dim=1).mean().clone()
-
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-masked_vae = PredictionConstrainedVAE(architecture=config['model']['architecture'], latent_dims=config['model']['latent_dims'], num_classes=config['model']['num_classes'])
-unmasked_vae = PredictionConstrainedVAE(architecture=config['model']['architecture'], latent_dims=config['model']['latent_dims'], num_classes=config['model']['num_classes'])
-m_file_path = '/cs/cs152/individual/ishita/checkpoints/pcvae_weighted-PCvae-MNIST-linear-20-1-0.001-2024-09-25-10-33-01'
-u_file_path = '/cs/cs152/individual/ishita/checkpoints/pcvae_weighted-PCvae-MNIST-linear-20-1-0.001-2024-09-25-10-33-01'
-
-state1 = torch.load(m_file_path)
-masked_vae.load_state_dict(state1)
-masked_vae.eval()
-masked_vae.to(device)
-
-state2 = torch.load(u_file_path)
-unmasked_vae.load_state_dict(state2)
-unmasked_vae.eval()
-unmasked_vae.to(device)
-
-DATASET_NAME = "MNIST"
-NUM_TRAIN = config['dataset']['num_train']
-BATCH_SIZE = config['training']['batch_size']
-
-
-## TODO: add logging
-# #wandb.init(project="posterior-matching", name="kl-loss-training", config={
-#     "num_epochs": config['training']['num_epochs'],
-#     "batch_size": config['training']['batch_size'],
-#     "learning_rate": config['training']['learning_rate']
-# })
-
-masked_data_l, masked_data_u, unmasked_data_l,unmasked_data_u = loadData(DATASET_NAME, NUM_TRAIN)
-masked_data_l = DataLoader(masked_data_l, batch_size=BATCH_SIZE, shuffle=False)
-masked_data_u = DataLoader(masked_data_u, batch_size=BATCH_SIZE, shuffle=False) 
-unmasked_data_l = DataLoader(unmasked_data_l, batch_size=BATCH_SIZE, shuffle=False)
-unmasked_data_u = DataLoader(unmasked_data_u, batch_size=BATCH_SIZE, shuffle=False) 
-
-# Freeze parameters of the unmasked encoder
-for param in unmasked_vae.encoder.parameters():
-    param.requires_grad = False
-
-# added this
-for param in unmasked_vae.decoder.parameters():
-    param.requires_grad = False
+    train_data, _, input_size = load_data("MNIST", config["dataset"]["num_train"])
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size=config["training"]["batch_size"], shuffle=True)
     
-# Define optimizer for masked VAE (we only optimize the masked VAE's encoder)
-optimizer = optim.Adam(masked_vae.encoder.parameters(), lr=config['training']['learning_rate'])
-# Training loop for posterior matching
-num_epochs = config['training']['num_epochs']
-broad_kl_loss = []
-for epoch in range(num_epochs):
-    kl_losses = []
-    # l_masked = []
-    # l_unmasked = [] 
-    # for batch_data_m in masked_data_u:
-    #     batch_data_m= batch_data_m[0]
-    #     batch_data_m = batch_data_m.to(device)
-    #     masked_mu, masked_logvar = masked_vae.encoder(batch_data_m)
-    #     l_masked.append((masked_mu,masked_logvar))
-    # for batch_data_u in unmasked_data_u:
-    #     batch_data_u = batch_data_u[0]
-    #     batch_data_u = batch_data_u.to(device)
-        
-    #     # added this
-    #     with torch.no_grad():
-    #         unmasked_mu, unmasked_logvar = unmasked_vae.encoder(batch_data_u)
-
-    #     l_unmasked.append((unmasked_mu, unmasked_logvar))
-
-    # for i in range(0,len(l_unmasked)):
-    #     # Compute KL divergence between the two latent distributions
-    #     masked_mu, masked_logvar = l_masked[i]
-    #     unmasked_mu, unmasked_logvar = l_unmasked[i]
-    #     #print(masked_mu,unmasked_mu)
-        
-    #     kl_loss = kl_divergence_posterior(masked_mu, masked_logvar, unmasked_mu, unmasked_logvar)
-    #     kl_losses.append(kl_loss.item())
-    #     # Backpropagation and optimization
-    #     optimizer.zero_grad()
-    #     kl_loss.backward()
-    #     optimizer.step()
+    old_vae = VariationalAutoencoder(
+        architecture=config["model"]["architecture"],
+        latent_dims=config["model"]["latent_dims"],
+        input_dims=input_size,
+    ).to(device)
     
-    for (m_batch, u_batch) in zip(masked_data_u, unmasked_data_u):
-        m_batch = m_batch[0].to(device)
-        u_batch = u_batch[0].to(device)
+    trainVAE(
+        old_vae,
+        train_loader,
+        config["model"]["beta"],
+        config["training"]["num_epochs"],
+        config["training"]["learning_rate"],
+        run_name_vae,
+        device,
+        config=config,
+    )
+    
+    if config["training"].get("save_model", False):
+        os.makedirs("./checkpoints", exist_ok=True)
+        torch.save(old_vae.state_dict(), f"./checkpoints/{run_name_vae}.pt")
+        print(f"Saved trained VAE: {run_name_vae}")
 
-        masked_mu, masked_logvar = masked_vae.encoder(m_batch)
+    old_vae.eval()
+    for param in old_vae.parameters():
+        param.requires_grad = False
 
-        # Freeze unmasked part
-        with torch.no_grad():
-            unmasked_mu, unmasked_logvar = unmasked_vae.encoder(u_batch)
+    # Stage 2: Train New Encoder for Posterior Matching
+    run_name_enc = config["run_name"] + "_encoder"
+    print(f"Training new encoder: {run_name_enc}")
 
-        kl_loss = kl_divergence_posterior(masked_mu, masked_logvar,
-                                        unmasked_mu, unmasked_logvar)
+    new_vae = VariationalAutoencoder(
+        architecture=config["model"]["architecture"],
+        latent_dims=config["model"]["latent_dims"],
+        input_dims=input_size,
+    ).to(device)
 
-        optimizer.zero_grad()
-        kl_loss.backward()
-        optimizer.step()
-        
-        kl_losses.append(kl_loss.item())
-    # Logging the KL loss per epoch
-    avg_kl_loss = np.mean(kl_losses)
-    broad_kl_loss.append(avg_kl_loss)
-    print(f"Epoch {epoch+1}/{num_epochs}, KL Loss: {avg_kl_loss}")
-    print(f"average KL Loss: {avg_kl_loss}")
-    #wandb.log({"KL Loss": avg_kl_loss, "epoch": epoch + 1})
-    # # Visualize latent space every 10 epochs
-    # if epoch % 10 == 0:
-    # #TODO: this code does not have different or correct vars for unmasked or masked 
-    #     # Collect latent distributions for visualization
-    #     z_batches, y_batches = [], []
-    #     for batch_data, labels in masked_data_l:
-    #         batch_data = batch_data.to(device)
-    #         with torch.no_grad():
-    #             latent_z, _ = masked_vae.encoder(batch_data)
-    #         z_batches.append(latent_z)
-    #         y_batches.append(labels)
-    #     # Convert lists to tensors for visualization
-    #     z_batches = torch.cat(z_batches).cpu().numpy()
-    #     y_batches = torch.cat(y_batches).cpu().numpy()
-    #     # Plot latent distribution with PCA
-    #     plotPCAdist(z_batches, y_batches)
-    #     stackedHist(z_batches, y_batches)
+    for param in new_vae.decoder.parameters():
+        param.requires_grad = False  # Only train encoder
 
-torch.save(masked_vae.state_dict(), "saved_masked_rohan.sav")
-torch.save(unmasked_vae.state_dict(), "saved_unmasked_rohan.sav")
+    torch.manual_seed(0)
+    (blackout_l, blackout_u), (full_l, full_u) = blackout_dataloader("MNIST", config["dataset"]["num_train"])
+    blackout_loader = torch.utils.data.DataLoader(blackout_u, batch_size=config["training"]["batch_size"], shuffle=False)
+    full_loader = torch.utils.data.DataLoader(full_u, batch_size=config["training"]["batch_size"], shuffle=False)
 
-import matplotlib.pyplot as plt
-print(len(broad_kl_loss))
+    train_posterior_encoder(
+        old_encoder=old_vae.encoder,
+        new_encoder=new_vae.encoder,
+        full_loader=full_loader,
+        blackout_loader=blackout_loader,
+        epochs=config["training"]["posterior_epochs"],
+        lr=config["training"]["posterior_lr"],
+        run_name=run_name_enc,
+        device=device,
+    )
 
-plt.plot( broad_kl_loss, label='KL Loss')
-plt.xlabel('Epochs')
-plt.ylabel('KL Loss')
-plt.title('KL Loss during Posterior Matching Training')
-plt.legend()
-plt.grid(True)
-#wandb.log({"KL Loss Plot": #wandb.Image(plt)})
-#wandb.finish()
-save_path = "/cs/cs152/individual/ishita/kl_loss_plot.png"
-plt.savefig(save_path)
+    # Stage 3: Evaluate Reconstruction
+    print("Evaluating new encoder with blacked-out images.")
+    new_vae.encoder.eval()
+    old_vae.decoder.eval()
+    
+    xb, _ = next(iter(blackout_loader))
+    xb = xb.to(device)
+    
+    with torch.no_grad():
+        mu_new, logvar_new = new_vae.encoder(xb)
+        std_new = torch.exp(0.5 * logvar_new)
+        eps = torch.randn_like(std_new)
+        z_new = mu_new + eps * std_new
+        recon, _ = old_vae.decoder(z_new)
+        # recon, _ = old_vae.decoder.sample(mu_new, logvar_new)
+    
+    recon = recon.clamp(0, 1)
 
-print("Posterior matching training complete!")
+    logged_images = []
+    for i in range(min(8, xb.shape[0])):
+        recon_img = recon[i].view(1, 28, 28)  # reshape to match input
+        stacked = torch.cat((xb[i], recon_img), dim=2)  # [1, 28, 56]
+        logged_images.append(wandb.Image(stacked.cpu().numpy(), caption=f"Blackout | Recon {i}"))
+
+
+    # Log images
+    wandb.init(project="torchVAE", name=config["run_name"] + "_eval", config=config, entity="hopelab-hmc")
+    wandb.log({"Blackout vs Reconstruction": logged_images})
+    wandb.finish()
+
+    print("Evaluation complete. See WandB logs.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=True, help="Path to the config file")
+    args = parser.parse_args()
+    
+    with open(args.config, "r") as f:
+        config = yaml.safe_load(f)
+    
+    main(config)

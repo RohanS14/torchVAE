@@ -1,0 +1,20 @@
+run_name: oneshot_experiment
+
+model:
+    name: VAE
+    latent_dims: 20
+    architecture: linear
+    beta: 1.0
+    pm_weight: 1.0  # weight for Posterior Matching (PM) loss
+
+training:
+    batch_size: 128
+    learning_rate: 0.001     # can still be used if you pretrain
+    num_epochs: 100          # optional if you're doing a pretrain stage
+    save_model: true
+    oneshot_epochs: 30       # for joint training
+    oneshot_lr: 0.001        # learning rate for one-shot phase
+
+dataset:
+    name: MNIST
+    num_train: 10000

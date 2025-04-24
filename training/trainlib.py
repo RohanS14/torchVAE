@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from utils.datatools import blackout_dataloader
 import tqdm
 import itertools
 
@@ -773,3 +773,68 @@ def trainCPCVAE_saheli(cpcvae, unlabeled_data_loader, labeled_data_loader, epoch
             
     return cpcvae
 
+
+def trainVAE_blackout(vae, dataset_name, num_train, epochs, lr, beta, run_name, device="cuda", config=None):
+    """
+    Unsupervised training loop for a VAE using blackout-augmented data.
+    The model receives masked images as input and is trained to reconstruct the unmasked image.
+    
+    Args:
+        vae: The Variational Autoencoder model.
+        dataset_name: Name of the dataset (e.g., "MNIST").
+        num_train: Number of training samples (used in blackout_dataloader).
+        epochs: Number of training epochs.
+        lr: Learning rate.
+        beta: Coefficient for the KL divergence term.
+        run_name: Run name for logging.
+        device: Device to run on.
+        config: Optional configuration dictionary (should include training.batch_size).
+    
+    Returns:
+        The trained VAE model.
+    """
+    import itertools
+    from utils.datatools import blackout_dataloader
+    import torch.optim as optim
+    import tqdm
+    import wandb
+
+    # Load blackout dataset (we use the unlabeled pairs for unsupervised training)
+    (data_l_masked, data_u_masked), (data_l_unmasked, data_u_unmasked) = blackout_dataloader(dataset_name, num_train)
+    batch_size = config["training"]["batch_size"]
+    masked_loader = torch.utils.data.DataLoader(data_u_masked, batch_size=batch_size, shuffle=True)
+    unmasked_loader = torch.utils.data.DataLoader(data_u_unmasked, batch_size=batch_size, shuffle=True)
+
+    print(f"Logging to {run_name}")
+    wandb.init(project="torchVAE", name=run_name, config=config, entity="hopelab-hmc")
+
+    opt = optim.Adam(vae.parameters(), lr=lr)
+    vae.train()
+    progress = tqdm.trange(epochs)
+
+    for epoch in progress:
+        epoch_loss = 0.0
+        for (x_masked, _), (x_unmasked, _) in zip(masked_loader, unmasked_loader):
+            x_masked = x_masked.to(device)
+            x_unmasked = x_unmasked.to(device)
+
+            opt.zero_grad()
+            mu, logvar, xhat = vae(x_masked)
+            # Compute reconstruction loss against the unmasked image
+            recon_loss = ((x_unmasked - xhat) ** 2).sum()
+            kl_loss = kl_divergence(mu, logvar)
+            loss = recon_loss + beta * kl_loss
+            loss.backward()
+            opt.step()
+            epoch_loss += loss.item()
+
+        progress.set_description(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss:.4f}")
+        wandb.log({
+            "Epoch": epoch + 1,
+            "Loss": epoch_loss,
+            "Reconstruction Loss": recon_loss.item(),
+            "KL Loss": kl_loss.item()
+        })
+
+    wandb.finish()
+    return vae
