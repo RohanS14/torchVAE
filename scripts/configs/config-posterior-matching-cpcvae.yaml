@@ -1,0 +1,23 @@
+run_name: oneshot_experiment
+
+model:
+  name: CPCVAE
+  latent_dims: 20
+  architecture: linear
+  beta: 1.0
+  pm_weight: 1.0
+  consistency_weight: 1.0
+  classification_weight: 1.0
+  distn: gauss 
+
+training:
+  batch_size: 128
+  learning_rate: 0.001
+  num_epochs: 100
+  save_model: true
+  oneshot_epochs: 100
+  oneshot_lr: 0.001
+
+dataset:
+  name: MNIST
+  num_train: 10000
